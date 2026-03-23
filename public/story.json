@@ -1,0 +1,101 @@
+{
+  "title": "Global Energy Shift",
+  "duration": 40000,
+  "scenes": [
+    {
+      "id": "scene-1-population-map",
+      "tool": "map",
+      "startTime": 0,
+      "endTime": 10000,
+      "data": [
+        { "country": "China", "lng": 104, "lat": 35, "population": 1400000000 },
+        { "country": "USA", "lng": -95, "lat": 37, "population": 331000000 }
+      ],
+      "keyframes": [
+        {
+          "time": 0,
+          "state": { "panTo": "reset" }
+        },
+        {
+          "time": 2000,
+          "state": { "panTo": "Asia" }
+        }
+      ],
+      "overlays": []
+    },
+    {
+      "id": "scene-2-energy-scatter",
+      "tool": "scatterplot",
+      "startTime": 10000,
+      "endTime": 20000,
+      "data": "/energy-data.json",
+      "keyframes": [
+        {
+          "time": 0,
+          "state": { "highlight": null, "zoom": { "x": 0, "y": 0, "k": 1 } }
+        },
+        {
+          "time": 6000,
+          "state": { "highlight": "China", "zoom": { "x": -200, "y": -100, "k": 1.5 } }
+        }
+      ],
+      "overlays": []
+    },
+    {
+      "id": "scene-3-custom-tool",
+      "tool": "/my-d3-tool.html",
+      "startTime": 20000,
+      "endTime": 30000,
+      "data": { "msg": "Hello Data" },
+      "keyframes": [
+        {
+          "time": 0,
+          "state": { "message": "Starting iframe", "progress": 0 }
+        },
+        {
+          "time": 5000,
+          "state": { "message": "Halfway there", "progress": 50 }
+        },
+        {
+          "time": 9000,
+          "state": { "message": "Almost done", "progress": 90 }
+        }
+      ],
+      "overlays": [
+        {
+          "time": 0,
+          "duration": 5000,
+          "type": "text",
+          "content": "This entire scene is powered by an external HTML file using the seamless IframeAdapter!",
+          "position": "bottom"
+        }
+      ]
+    },
+    {
+      "id": "scene-4-custom-js-module",
+      "tool": "/custom-d3-tool.js",
+      "startTime": 30000,
+      "endTime": 40000,
+      "data": [],
+      "keyframes": [
+        {
+          "time": 0,
+          "state": { "status": "JS module loaded", "chartValue": 10 }
+        },
+        {
+          "time": 5000,
+          "state": { "status": "Animating via JS Adapter", "chartValue": 80 }
+        }
+      ],
+      "overlays": [
+        {
+          "time": 0,
+          "duration": 5000,
+          "type": "text",
+          "content": "This scene dynamically loads the custom-d3-tool.js ES module on the fly!",
+          "position": "top"
+        }
+      ]
+    }
+  ]
+}

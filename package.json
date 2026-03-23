@@ -1,0 +1,31 @@
+{
+  "name": "dive",
+  "version": "1.0.0",
+  "description": "DIVE is a framework for creating \"Interruptible Narrative Visualizations.\" It bridges the gap between curated, author-driven data stories (like videos) and user-driven exploratory tools (like interactive dashboards).",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AdamRidley/DIVE.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/AdamRidley/DIVE/issues"
+  },
+  "homepage": "https://github.com/AdamRidley/DIVE#readme",
+  "dependencies": {
+    "d3": "^7.9.0",
+    "lit": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/d3": "^7.4.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.1"
+  }
+}

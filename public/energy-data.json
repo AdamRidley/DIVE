@@ -1,0 +1,4 @@
+[
+  { "country": "China", "gdp": 14, "energy": 140, "population": 14000 },
+  { "country": "USA", "gdp": 21, "energy": 94, "population": 3310 }
+]

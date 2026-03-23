@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DIVE Framework PoC</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #1a1a1a;
+        color: white;
+        font-family: sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+      }
+      dive-video {
+        width: 800px;
+        height: 600px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      }
+    </style>
+  </head>
+  <body>
+    <!-- The web component. Points to our authored narrative file -->
+    <dive-video src="/story.json"></dive-video>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
