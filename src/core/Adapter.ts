@@ -20,4 +20,9 @@ export interface IAdapter {
    * Optional: Hook for when the user takes over.
    */
   onInteract?(callback: () => void): void;
+
+  /**
+   * Optional: Notify adapters when playback is paused/resumed.
+   */
+  setPlaybackState?(isPlaying: boolean, timeMs: number): void;
 }

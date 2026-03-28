@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Population Blocks</title>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <style>
+    :root {
+      --bg-1: #09120f;
+      --bg-2: #0f2e24;
+      --ink: #f3fff9;
+      --muted: #c1dfd0;
+      --panel: rgba(8, 20, 15, 0.68);
+      --highlight: #fff56e;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: "DM Sans", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 84% 18%, rgba(122, 255, 200, 0.17), transparent 32%),
+        radial-gradient(circle at 10% 70%, rgba(117, 210, 255, 0.12), transparent 28%),
+        linear-gradient(150deg, var(--bg-1), var(--bg-2));
+      color: var(--ink);
+    }
+
+    #chart {
+      width: 100%;
+      height: 100%;
+      position: relative;
+    }
+
+    .title {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 21px;
+      letter-spacing: 0.01em;
+      font-weight: 700;
+    }
+
+    .title p {
+      margin: 3px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .back-btn {
+      position: absolute;
+      left: 14px;
+      top: 64px;
+      z-index: 4;
+      background: var(--panel);
+      border: 1px solid rgba(210, 245, 229, 0.3);
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 180ms ease;
+    }
+
+    .back-btn.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .node-rect {
+      stroke: rgba(255, 255, 255, 0.24);
+      stroke-width: 1;
+      cursor: pointer;
+      transition: stroke 180ms ease, stroke-width 180ms ease, filter 180ms ease;
+    }
+
+    .node-rect.highlight {
+      stroke: var(--highlight);
+      stroke-width: 3;
+      filter: drop-shadow(0 0 8px rgba(255, 245, 110, 0.55));
+    }
+
+    .label {
+      fill: rgba(245, 255, 250, 0.95);
+      pointer-events: none;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .sub-label {
+      fill: rgba(245, 255, 250, 0.82);
+      pointer-events: none;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+      font-size: 11px;
+    }
+
+    .tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(6, 15, 11, 0.92);
+      border: 1px solid rgba(201, 243, 221, 0.36);
+      border-radius: 9px;
+      color: var(--ink);
+      font-size: 12px;
+      padding: 8px 10px;
+      line-height: 1.35;
+      opacity: 0;
+      transition: opacity 120ms ease;
+      white-space: nowrap;
+      z-index: 8;
+    }
+  </style>
+</head>
+<body>
+  <div id="chart"></div>
+  <div class="title">
+    <h1>Population Blocks: The Modern Distribution</h1>
+    <p>Treemap of world population around 2020. Click a continent to zoom in.</p>
+  </div>
+  <button id="back" class="back-btn">Back to World</button>
+  <div id="tooltip" class="tooltip"></div>
+
+  <script>
+    const root = d3.select('#chart');
+    const tooltip = d3.select('#tooltip');
+    const backButton = d3.select('#back');
+
+    let dataModel = null;
+    let regions = [];
+    let regionById = new Map();
+    let svg;
+    let sceneLayer;
+    let currentDepth = 0;
+    let currentRegionId = null;
+    let currentView = 'world';
+    let playbackIsPlaying = false;
+    let lastNarrativeState = null;
+    let userDismissedDimming = false;
+    let fallbackBootstrapStarted = false;
+
+    const CHART_TOP_OFFSET = 92;
+    const DEFAULT_DATA_URL = new URL('../data/wealth-health-gapminder.json', window.location.href).toString();
+
+    let latestState = {
+      view: 'world',
+      highlightRegion: null,
+      dimRegion: null,
+      fadeOut: false,
+    };
+
+    function sumPopulation(node) {
+      if (node.value) return node.value;
+      return 0;
+    }
+
+    function regionColor(id) {
+      return regionById.get(id)?.color || '#4f8a73';
+    }
+
+    function darkenColor(hex, fraction) {
+      const color = d3.color(hex);
+      if (!color) return hex;
+
+      const hsl = d3.hsl(color);
+      const safeFraction = Math.max(0, Math.min(1, Number(fraction) || 0));
+      hsl.l = Math.max(0, Math.min(1, hsl.l * (1 - safeFraction)));
+      return hsl.toString();
+    }
+
+    function formatPopulation(value) {
+      return d3.format(',')(Math.round(value));
+    }
+
+    function standaloneDataUrl() {
+      const params = new URLSearchParams(window.location.search);
+      const value = params.get('data') || params.get('dataUrl');
+      return value ? new URL(value, window.location.href).toString() : DEFAULT_DATA_URL;
+    }
+
+    function showLoadError(message) {
+      root.selectAll('*').remove();
+      root
+        .append('div')
+        .style('position', 'absolute')
+        .style('inset', '0')
+        .style('display', 'grid')
+        .style('place-items', 'center')
+        .style('padding', '24px')
+        .style('text-align', 'center')
+        .style('font-size', '14px')
+        .style('color', 'var(--ink)')
+        .text(message);
+    }
+
+    async function bootstrapStandalone() {
+      if (dataModel || fallbackBootstrapStarted) return;
+      fallbackBootstrapStarted = true;
+
+      try {
+        const pendingNarrativeState = lastNarrativeState;
+        const pendingPlaybackIsPlaying = playbackIsPlaying;
+        const response = await fetch(standaloneDataUrl());
+        if (!response.ok) {
+          throw new Error(`Data request failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (dataModel) return;
+        initialize(data);
+
+        playbackIsPlaying = pendingPlaybackIsPlaying;
+        if (pendingNarrativeState) {
+          lastNarrativeState = pendingNarrativeState;
+          applyState(pendingNarrativeState, { duration: 0 });
+        }
+      } catch (error) {
+        console.error('Population Blocks standalone bootstrap failed.', error);
+        showLoadError('Unable to load data for this standalone tool. Pass ?data=... to override the default JSON path.');
+      }
+    }
+
+    function setBackButton() {
+      backButton.classed('visible', currentDepth > 0);
+    }
+
+    function buildHierarchyForWorld(width, height) {
+      const hierarchy = d3
+        .hierarchy(dataModel.treemap2020)
+        .sum(sumPopulation)
+        .sort((a, b) => b.value - a.value);
+
+      d3.treemap().size([width, height]).paddingOuter(3).paddingTop(20).paddingInner(2).round(true)(hierarchy);
+      return hierarchy;
+    }
+
+    function buildHierarchyForRegion(regionNode, width, height) {
+      const regionData = {
+        name: regionNode.data.name,
+        id: regionNode.data.id,
+        children: regionNode.data.children,
+      };
+
+      const hierarchy = d3
+        .hierarchy(regionData)
+        .sum(sumPopulation)
+        .sort((a, b) => b.value - a.value);
+
+      d3.treemap().size([width, height]).paddingOuter(3).paddingTop(24).paddingInner(2).round(true)(hierarchy);
+      return hierarchy;
+    }
+
+    function nodeFill(node) {
+      if (node.depth === 1) {
+        const continentBase = currentDepth === 1
+          ? regionColor(currentRegionId)
+          : regionColor(node.data.id);
+
+        return darkenColor(continentBase, 0.2);
+      }
+
+      if (node.depth >= 2) {
+        const parentRegionId = node.parent?.data?.id || currentRegionId;
+        return regionColor(parentRegionId);
+      }
+
+      return darkenColor('#2f6c57', 0.2);
+    }
+
+    function showTooltip(event, node) {
+      const label = node.data.name;
+      const value = node.value || 0;
+
+      tooltip
+        .style('opacity', 1)
+        .style('left', `${Math.min(event.offsetX + 14, root.node().clientWidth - 220)}px`)
+        .style('top', `${Math.max(8, event.offsetY - 32)}px`)
+        .html(`<strong>${label}</strong><br/>Population: ${formatPopulation(value)}`);
+    }
+
+    function hideTooltip() {
+      tooltip.style('opacity', 0);
+    }
+
+    function notifyInteract() {
+      window.parent?.postMessage({ type: 'DIVE_INTERACT', source: 'population-blocks' }, '*');
+    }
+
+    function ensureSvg(width, height) {
+      if (!svg) {
+        svg = root
+          .append('svg')
+          .attr('preserveAspectRatio', 'xMidYMid meet');
+
+        sceneLayer = svg.append('g').attr('class', 'scene-layer');
+      }
+
+      svg
+        .attr('width', width)
+        .attr('height', height)
+        .attr('viewBox', `0 0 ${width} ${height}`);
+
+      sceneLayer.attr('transform', `translate(0,${CHART_TOP_OFFSET})`);
+    }
+
+    function nodeKey(node) {
+      return String(node.data.id || node.data.name);
+    }
+
+    function topRegionId(node) {
+      if (!node) return '';
+
+      if (node.depth === 1) {
+        return String(node.data.id || '').toLowerCase();
+      }
+
+      let current = node;
+      while (current && current.parent) {
+        if (current.parent.depth === 1) {
+          return String(current.parent.data.id || '').toLowerCase();
+        }
+        current = current.parent;
+      }
+
+      return '';
+    }
+
+    function activeDimRegion() {
+      if (userDismissedDimming) {
+        return '';
+      }
+
+      return String(latestState.dimRegion || '').toLowerCase();
+    }
+
+    function nodeOpacity(node) {
+      const dimRegion = activeDimRegion();
+      if (!dimRegion || currentDepth !== 0) {
+        return 1;
+      }
+
+      const regionId = topRegionId(node);
+      if (!regionId) {
+        return 1;
+      }
+
+      return regionId === dimRegion ? 1 : 0.24;
+    }
+
+    function applyFocusDimming() {
+      if (!sceneLayer) return;
+
+      sceneLayer
+        .selectAll('g.node')
+        .style('opacity', (node) => nodeOpacity(node));
+    }
+
+    function clearDimmingFromInteraction() {
+      if (userDismissedDimming) {
+        return;
+      }
+
+      userDismissedDimming = true;
+      applyFocusDimming();
+    }
+
+    function render(view = 'world', duration = 500) {
+      if (!dataModel) return;
+
+      const width = root.node().clientWidth || 960;
+      const height = root.node().clientHeight || 560;
+
+      const innerHeight = Math.max(160, height - CHART_TOP_OFFSET - 6);
+      ensureSvg(width, height);
+
+      const previousPositions = new Map();
+      sceneLayer.selectAll('g.node').each(function (node) {
+        previousPositions.set(nodeKey(node), {
+          x0: node.x0,
+          y0: node.y0,
+          x1: node.x1,
+          y1: node.y1,
+        });
+      });
+
+      const worldHierarchy = buildHierarchyForWorld(width, innerHeight);
+      let visibleHierarchy = worldHierarchy;
+
+      const previousView = currentView;
+      const previousRegionId = currentRegionId;
+
+      currentDepth = 0;
+      currentRegionId = null;
+
+      if (view !== 'world') {
+        const regionNode = worldHierarchy.children.find((child) => child.data.id === view);
+        if (regionNode) {
+          visibleHierarchy = buildHierarchyForRegion(regionNode, width, innerHeight);
+          currentDepth = 1;
+          currentRegionId = view;
+        }
+      }
+
+      currentView = view;
+
+      setBackButton();
+
+      const nodes = visibleHierarchy.descendants().filter((node) => node.depth > 0);
+
+      const transition = d3.transition().duration(duration).ease(d3.easeCubicOut);
+
+      const groups = sceneLayer
+        .selectAll('g.node')
+        .data(nodes, (node) => nodeKey(node));
+
+      const groupsEnter = groups
+        .enter()
+        .append('g')
+        .attr('class', 'node')
+        .attr('transform', (node) => {
+          const key = nodeKey(node);
+          const prev = previousPositions.get(key);
+          if (prev) {
+            return `translate(${prev.x0},${prev.y0})`;
+          }
+
+          // When entering a zoomed view, pull new nodes out of the focused region bounds.
+          if (previousView === 'world' && view !== 'world') {
+            const regionAnchor = previousPositions.get(view);
+            if (regionAnchor) {
+              return `translate(${regionAnchor.x0},${regionAnchor.y0})`;
+            }
+          }
+
+          // When returning to world, new region nodes emerge from prior focused region.
+          if (previousView !== 'world' && view === 'world' && previousRegionId) {
+            const regionAnchor = previousPositions.get(previousRegionId);
+            if (regionAnchor) {
+              return `translate(${regionAnchor.x0},${regionAnchor.y0})`;
+            }
+          }
+
+          return `translate(${node.x0},${node.y0})`;
+        })
+        .style('opacity', 0);
+
+      groupsEnter
+        .append('rect')
+        .attr('class', 'node-rect')
+        .attr('width', (node) => {
+          const key = nodeKey(node);
+          const prev = previousPositions.get(key);
+          if (prev) {
+            return Math.max(0, prev.x1 - prev.x0);
+          }
+          return Math.max(0, node.x1 - node.x0);
+        })
+        .attr('height', (node) => {
+          const key = nodeKey(node);
+          const prev = previousPositions.get(key);
+          if (prev) {
+            return Math.max(0, prev.y1 - prev.y0);
+          }
+          return Math.max(0, node.y1 - node.y0);
+        })
+        .attr('fill', (node) => nodeFill(node));
+
+      groupsEnter.append('text').attr('class', 'label').attr('x', 7).attr('y', 16);
+      groupsEnter.append('text').attr('class', 'sub-label').attr('x', 7).attr('y', 30);
+
+      const groupsMerged = groupsEnter.merge(groups);
+
+      groupsMerged
+        .on('mousemove', (event, node) => showTooltip(event, node))
+        .on('mouseleave', hideTooltip)
+        .on('click', (_, node) => {
+          clearDimmingFromInteraction();
+          notifyInteract();
+          if (currentDepth === 0 && node.depth === 1) {
+            latestState.view = node.data.id;
+            render(latestState.view, 620);
+            applyHighlight();
+          }
+        });
+
+      groupsMerged
+        .transition(transition)
+        .style('opacity', (node) => nodeOpacity(node))
+        .attr('transform', (node) => `translate(${node.x0},${node.y0})`);
+
+      groupsMerged
+        .select('rect.node-rect')
+        .transition(transition)
+        .attr('width', (node) => Math.max(0, node.x1 - node.x0))
+        .attr('height', (node) => Math.max(0, node.y1 - node.y0))
+        .attr('fill', (node) => nodeFill(node));
+
+      groupsMerged
+        .select('text.label')
+        .text((node) => {
+          const nodeWidth = node.x1 - node.x0;
+          const nodeHeight = node.y1 - node.y0;
+          const minimumWidth = currentDepth === 0 ? 90 : 65;
+          const minimumHeight = currentDepth === 0 ? 34 : 28;
+          if (nodeWidth < minimumWidth || nodeHeight < minimumHeight) return '';
+          return node.data.name;
+        });
+
+      groupsMerged
+        .select('text.sub-label')
+        .text((node) => {
+          const nodeWidth = node.x1 - node.x0;
+          const nodeHeight = node.y1 - node.y0;
+          if (nodeWidth < 85 || nodeHeight < 44) return '';
+          if (!node.value) return '';
+          return `${d3.format('.2s')(node.value).replace('G', 'B')} people`;
+        });
+
+      groups
+        .exit()
+        .transition(transition)
+        .style('opacity', 0)
+        .remove();
+
+      svg
+        .transition(transition)
+        .style('opacity', latestState.fadeOut ? 0.2 : 1);
+
+      applyHighlight();
+      applyFocusDimming();
+    }
+
+    function applyHighlight() {
+      if (!sceneLayer) return;
+
+      const highlightId = (latestState.highlightRegion || '').toLowerCase();
+
+      sceneLayer
+        .selectAll('rect.node-rect')
+        .classed('highlight', function (node) {
+          if (!highlightId) return false;
+
+          if (currentDepth === 0) {
+            return String(node.data.id || '').toLowerCase() === highlightId;
+          }
+
+          if (currentDepth === 1) {
+            return String(currentRegionId || '').toLowerCase() === highlightId;
+          }
+
+          return false;
+        });
+    }
+
+    function applyState(state, options = {}) {
+      if (!dataModel) return;
+
+      const resetUnspecified = Boolean(options.resetUnspecified);
+      const duration = Number(options.duration ?? state.duration ?? 480);
+
+      latestState = {
+        ...latestState,
+        ...state,
+      };
+
+      if (typeof state.dimRegion === 'string' && state.dimRegion.trim()) {
+        latestState.dimRegion = state.dimRegion;
+      } else if (state.dimRegion === null) {
+        latestState.dimRegion = null;
+      } else if (resetUnspecified) {
+        latestState.dimRegion = null;
+      }
+
+      if (resetUnspecified) {
+        userDismissedDimming = false;
+      }
+
+      const nextView = latestState.view || 'world';
+
+      render(nextView, duration);
+      applyHighlight();
+      applyFocusDimming();
+
+      if (typeof latestState.fadeOut === 'boolean') {
+        svg
+          .transition()
+          .duration(duration)
+          .style('opacity', latestState.fadeOut ? 0.2 : 1);
+      }
+    }
+
+    function initialize(data) {
+      if (!data || !data.treemap2020) return;
+
+      dataModel = data;
+      regions = data.regions || [];
+      regionById = new Map(regions.map((region) => [region.id, region]));
+
+      latestState = {
+        view: 'world',
+        highlightRegion: null,
+        dimRegion: null,
+        fadeOut: false,
+      };
+
+      playbackIsPlaying = false;
+      lastNarrativeState = null;
+      userDismissedDimming = false;
+
+      render('world', 0);
+    }
+
+    backButton.on('click', () => {
+      clearDimmingFromInteraction();
+      notifyInteract();
+      latestState.view = 'world';
+      render('world', 620);
+      applyHighlight();
+      applyFocusDimming();
+    });
+
+    window.addEventListener('resize', () => {
+      if (!dataModel) return;
+      render(latestState.view || 'world', 0);
+      applyHighlight();
+    });
+
+    window.addEventListener('message', (event) => {
+      const payload = event.data;
+      if (!payload || !payload.type) return;
+
+      if (payload.type === 'DIVE_INIT') {
+        initialize(payload.data);
+      } else if (payload.type === 'DIVE_STATE') {
+        lastNarrativeState = payload.state || {};
+        if (!dataModel) {
+          bootstrapStandalone();
+          return;
+        }
+        applyState(lastNarrativeState);
+      } else if (payload.type === 'DIVE_PLAYBACK') {
+        const nextPlaybackIsPlaying = Boolean(payload.isPlaying);
+        const didResumePlayback = !playbackIsPlaying && nextPlaybackIsPlaying;
+        playbackIsPlaying = nextPlaybackIsPlaying;
+
+        if (!dataModel) {
+          bootstrapStandalone();
+          return;
+        }
+
+        if (didResumePlayback && lastNarrativeState) {
+          applyState(lastNarrativeState, { resetUnspecified: true, duration: 420 });
+        }
+      }
+    });
+
+    window.setTimeout(() => {
+      if (!dataModel) {
+        bootstrapStandalone();
+      }
+    }, 180);
+  </script>
+</body>
+</html>

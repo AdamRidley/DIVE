@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lifespan Lines</title>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <style>
+    :root {
+      --bg-1: #08111f;
+      --bg-2: #11253b;
+      --fg: #e8f3ff;
+      --axis: #9fb7cc;
+      --grid: rgba(195, 216, 235, 0.2);
+      --annotation: #ffb36b;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 15% 15%, rgba(130, 180, 255, 0.18), transparent 35%),
+        radial-gradient(circle at 80% 30%, rgba(255, 181, 125, 0.14), transparent 30%),
+        linear-gradient(135deg, var(--bg-1), var(--bg-2));
+      color: var(--fg);
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+    }
+
+    #chart {
+      width: 100%;
+      height: 100%;
+      position: relative;
+    }
+
+    .title {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      fill: var(--fg);
+    }
+
+    .subtitle {
+      font-size: 12px;
+      fill: #bfcee0;
+    }
+
+    .axis text,
+    .axis path,
+    .axis line {
+      fill: var(--axis);
+      stroke: var(--axis);
+      font-size: 11px;
+    }
+
+    .grid line {
+      stroke: var(--grid);
+      stroke-dasharray: 3 4;
+    }
+
+    .grid path {
+      stroke: none;
+    }
+
+    .line {
+      fill: none;
+      stroke-width: 2.5;
+      filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.2));
+    }
+
+    .legend text {
+      fill: var(--fg);
+      font-size: 12px;
+    }
+
+    .annotation line {
+      stroke: var(--annotation);
+      stroke-width: 2;
+      stroke-dasharray: 6 5;
+    }
+
+    .annotation text {
+      fill: var(--annotation);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .hover-dot {
+      fill: #ffffff;
+      stroke: #0d1d31;
+      stroke-width: 2;
+      pointer-events: none;
+    }
+
+    .tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(4, 14, 26, 0.92);
+      border: 1px solid rgba(214, 236, 255, 0.35);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 12px;
+      color: #eaf4ff;
+      opacity: 0;
+      transition: opacity 120ms ease;
+      white-space: nowrap;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+    }
+  </style>
+</head>
+<body>
+  <div id="chart"></div>
+  <div id="tooltip" class="tooltip"></div>
+
+  <script>
+    const chartRoot = d3.select('#chart');
+    const tooltip = d3.select('#tooltip');
+
+    let chartData = null;
+    let currentState = {
+      maxYear: 1900,
+      minYear: 1800,
+      fixedDomainEndYear: 2020,
+      showAnnotation: false,
+      annotationYear: 1918,
+      segmentStartTimeMs: 0,
+      segmentEndTimeMs: 10000,
+    };
+    let currentDisplayYear = 1800;
+    let currentTimelineTimeMs = 0;
+    let lastNarrativeState = null;
+    let lastNarrativeTimeMs = 0;
+    let fallbackBootstrapStarted = false;
+
+    let svg;
+    let x;
+    let y;
+    let xAxisGroup;
+    let yAxisGroup;
+    let gridGroup;
+    let lineGroup;
+    let legendGroup;
+    let annotationGroup;
+    let hoverDot;
+    let hoverLayer;
+
+    const margin = { top: 70, right: 30, bottom: 48, left: 60 };
+    const AXIS_START_YEAR = 1800;
+    const AXIS_END_YEAR = 2020;
+    const DEFAULT_DATA_URL = new URL('../data/wealth-health-gapminder.json', window.location.href).toString();
+    const STANDALONE_FULL_VIEW_STATE = {
+      minYear: AXIS_START_YEAR,
+      maxYear: AXIS_END_YEAR,
+      segmentStartTimeMs: 0,
+      segmentEndTimeMs: 0,
+      showAnnotation: false,
+    };
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function standaloneDataUrl() {
+      const params = new URLSearchParams(window.location.search);
+      const value = params.get('data') || params.get('dataUrl');
+      return value ? new URL(value, window.location.href).toString() : DEFAULT_DATA_URL;
+    }
+
+    function showLoadError(message) {
+      chartRoot.selectAll('*').remove();
+      chartRoot
+        .append('div')
+        .style('position', 'absolute')
+        .style('inset', '0')
+        .style('display', 'grid')
+        .style('place-items', 'center')
+        .style('padding', '24px')
+        .style('text-align', 'center')
+        .style('font-size', '14px')
+        .style('color', 'var(--fg)')
+        .text(message);
+    }
+
+    async function bootstrapStandalone() {
+      if (chartData || fallbackBootstrapStarted) return;
+      fallbackBootstrapStarted = true;
+
+      try {
+        const pendingNarrativeState = lastNarrativeState;
+        const pendingNarrativeTimeMs = lastNarrativeTimeMs;
+        const response = await fetch(standaloneDataUrl());
+        if (!response.ok) {
+          throw new Error(`Data request failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (chartData) return;
+
+        if (pendingNarrativeState) {
+          initialize(data);
+          applyState(pendingNarrativeState, pendingNarrativeTimeMs);
+        } else {
+          currentState = {
+            ...currentState,
+            ...STANDALONE_FULL_VIEW_STATE,
+          };
+          currentTimelineTimeMs = 0;
+          initialize(data);
+        }
+      } catch (error) {
+        console.error('Lifespan Lines standalone bootstrap failed.', error);
+        showLoadError('Unable to load data for this standalone tool. Pass ?data=... to override the default JSON path.');
+      }
+    }
+
+    function notifyInteract() {
+      window.parent?.postMessage({ type: 'DIVE_INTERACT', source: 'lifespan-lines' }, '*');
+    }
+
+    function resolveDisplayYear(timeMs) {
+      const minYear = clamp(Number(currentState.minYear || AXIS_START_YEAR), AXIS_START_YEAR, AXIS_END_YEAR);
+      const maxYear = clamp(Number(currentState.maxYear || minYear), minYear, AXIS_END_YEAR);
+      const segmentStart = Number(currentState.segmentStartTimeMs);
+      const segmentEnd = Number(currentState.segmentEndTimeMs);
+
+      if (Number.isFinite(timeMs) && Number.isFinite(segmentStart) && Number.isFinite(segmentEnd) && segmentEnd > segmentStart) {
+        const progress = clamp((timeMs - segmentStart) / (segmentEnd - segmentStart), 0, 1);
+        return minYear + ((maxYear - minYear) * progress);
+      }
+
+      return maxYear;
+    }
+
+    function setupBaseChart() {
+      chartRoot.selectAll('*').remove();
+
+      const width = chartRoot.node().clientWidth || 960;
+      const height = chartRoot.node().clientHeight || 540;
+
+      svg = chartRoot
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('viewBox', `0 0 ${width} ${height}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet');
+
+      x = d3.scaleLinear().domain([AXIS_START_YEAR, AXIS_END_YEAR]).range([margin.left, width - margin.right]);
+      y = d3.scaleLinear().domain([0, 90]).range([height - margin.bottom, margin.top]);
+
+      gridGroup = svg
+        .append('g')
+        .attr('class', 'grid')
+        .attr('transform', `translate(${margin.left},0)`);
+
+      xAxisGroup = svg
+        .append('g')
+        .attr('class', 'axis')
+        .attr('transform', `translate(0,${height - margin.bottom})`);
+
+      yAxisGroup = svg
+        .append('g')
+        .attr('class', 'axis')
+        .attr('transform', `translate(${margin.left},0)`);
+
+      lineGroup = svg.append('g').attr('class', 'lines');
+      annotationGroup = svg.append('g').attr('class', 'annotation').style('opacity', 0);
+
+      svg
+        .append('text')
+        .attr('class', 'title')
+        .attr('x', margin.left)
+        .attr('y', 30)
+        .text('Lifespan Lines: Life Expectancy by Continent');
+
+      svg
+        .append('text')
+        .attr('class', 'subtitle')
+        .attr('x', margin.left)
+        .attr('y', 49)
+        .text('Population-weighted averages from Gapminder data');
+
+      legendGroup = svg.append('g').attr('class', 'legend').attr('transform', `translate(${margin.left},${height - 16})`);
+
+      hoverDot = svg.append('circle').attr('class', 'hover-dot').attr('r', 5).style('opacity', 0);
+
+      hoverLayer = svg
+        .append('rect')
+        .attr('x', margin.left)
+        .attr('y', margin.top)
+        .attr('width', width - margin.left - margin.right)
+        .attr('height', height - margin.top - margin.bottom)
+        .attr('fill', 'transparent')
+        .on('pointerdown', notifyInteract)
+        .on('click', notifyInteract)
+        .on('mousemove', handleHover)
+        .on('mouseleave', hideHover);
+
+      drawStaticAxes(width, height);
+      drawLegend();
+    }
+
+    function drawStaticAxes(width, height) {
+      const xTicks = Math.max(5, Math.floor((width - margin.left - margin.right) / 90));
+
+      xAxisGroup
+        .call(d3.axisBottom(x).ticks(xTicks).tickFormat(d3.format('d')))
+        .call((g) => g.selectAll('.tick line').attr('stroke-opacity', 0));
+
+      yAxisGroup
+        .call(d3.axisLeft(y).ticks(7))
+        .call((g) => g.select('.domain').attr('stroke-opacity', 0.7));
+
+      gridGroup
+        .call(
+          d3
+            .axisLeft(y)
+            .ticks(7)
+            .tickSize(-(width - margin.left - margin.right))
+            .tickFormat(() => '')
+        );
+
+      const yLabel = svg.selectAll('.y-label').data([0]);
+      yLabel
+        .join('text')
+        .attr('class', 'subtitle y-label')
+        .attr('transform', 'rotate(-90)')
+        .attr('x', -height / 2)
+        .attr('y', 18)
+        .attr('text-anchor', 'middle')
+        .text('Life Expectancy (years)');
+
+      const xLabel = svg.selectAll('.x-label').data([0]);
+      xLabel
+        .join('text')
+        .attr('class', 'subtitle x-label')
+        .attr('x', width - margin.right)
+        .attr('y', height - 10)
+        .attr('text-anchor', 'end')
+        .text('Year');
+    }
+
+    function drawLegend() {
+      if (!chartData) return;
+
+      const items = legendGroup
+        .selectAll('g.legend-item')
+        .data(chartData.regionLifeExpectancy, (d) => d.regionId)
+        .join((enter) => {
+          const group = enter.append('g').attr('class', 'legend-item');
+          group.append('line').attr('x1', 0).attr('x2', 18).attr('y1', 0).attr('y2', 0).attr('stroke-width', 3);
+          group.append('text').attr('x', 24).attr('y', 4);
+          return group;
+        });
+
+      items
+        .attr('transform', (_, index) => `translate(${index * 145},0)`)
+        .each(function (region) {
+          const g = d3.select(this);
+          g.select('line').attr('stroke', region.color);
+          g.select('text').text(region.regionName);
+        });
+    }
+
+    function filteredLineValues(region, maxYear) {
+      const lastWholeYear = Math.floor(maxYear);
+      const values = region.values.filter((value) => value.year <= lastWholeYear);
+      const fraction = maxYear - lastWholeYear;
+
+      if (fraction <= 0) {
+        return values;
+      }
+
+      const prev = region.values.find((value) => value.year === lastWholeYear);
+      const next = region.values.find((value) => value.year === lastWholeYear + 1);
+
+      if (!prev || !next) {
+        return values;
+      }
+
+      values.push({
+        year: maxYear,
+        lifeExp: prev.lifeExp + ((next.lifeExp - prev.lifeExp) * fraction),
+      });
+
+      return values;
+    }
+
+    function lineGenerator() {
+      return d3
+        .line()
+        .defined((value) => Number.isFinite(value.lifeExp) && Number.isFinite(value.year))
+        .x((value) => x(value.year))
+        .y((value) => y(value.lifeExp));
+    }
+
+    function renderLines() {
+      if (!chartData) return;
+
+      const line = lineGenerator();
+
+      const displayYear = clamp(currentDisplayYear, AXIS_START_YEAR, AXIS_END_YEAR);
+
+      const paths = lineGroup
+        .selectAll('path.line')
+        .data(chartData.regionLifeExpectancy, (d) => d.regionId)
+        .join('path')
+        .attr('class', 'line')
+        .attr('stroke', (d) => d.color)
+        .attr('d', (region) => line(filteredLineValues(region, displayYear)));
+
+      paths.interrupt();
+
+      renderAnnotation();
+    }
+
+    function renderAnnotation() {
+      annotationGroup.selectAll('*').remove();
+
+      if (!currentState.showAnnotation) {
+        annotationGroup.style('opacity', 0);
+        return;
+      }
+
+      const year = Number(currentState.annotationYear || 1918);
+      if (!Number.isFinite(year) || year > currentDisplayYear) {
+        annotationGroup.style('opacity', 0);
+        return;
+      }
+
+      const yBottom = chartRoot.node().clientHeight - margin.bottom;
+      const yTop = margin.top + 4;
+
+      annotationGroup
+        .append('line')
+        .attr('x1', x(year))
+        .attr('x2', x(year))
+        .attr('y1', yBottom)
+        .attr('y2', yTop);
+
+      annotationGroup
+        .append('text')
+        .attr('x', x(year) + 8)
+        .attr('y', yTop + 12)
+        .text('1918 pandemic + global conflict era');
+
+      annotationGroup.style('opacity', 1);
+    }
+
+    function nearestPoint(mouseX, mouseY) {
+      if (!chartData) return null;
+
+      const year = clamp(Math.round(x.invert(mouseX)), AXIS_START_YEAR, Math.floor(currentDisplayYear));
+      let best = null;
+      let bestDistance = Infinity;
+
+      for (const region of chartData.regionLifeExpectancy) {
+        const point = region.values.find((value) => value.year === year);
+        if (!point) continue;
+
+        const py = y(point.lifeExp);
+        const dist = Math.abs(py - mouseY);
+
+        if (dist < bestDistance) {
+          bestDistance = dist;
+          best = {
+            regionName: region.regionName,
+            color: region.color,
+            year,
+            lifeExp: point.lifeExp,
+            x: x(point.year),
+            y: py,
+          };
+        }
+      }
+
+      return best;
+    }
+
+    function handleHover(event) {
+      if (!chartData) return;
+
+      const [mouseX, mouseY] = d3.pointer(event, svg.node());
+      const point = nearestPoint(mouseX, mouseY);
+      if (!point) {
+        hideHover();
+        return;
+      }
+
+      hoverDot.attr('cx', point.x).attr('cy', point.y).style('opacity', 1).attr('fill', point.color);
+
+      tooltip
+        .style('opacity', 1)
+        .style('left', `${Math.min(mouseX + 20, chartRoot.node().clientWidth - 170)}px`)
+        .style('top', `${Math.max(8, mouseY - 42)}px`)
+        .html(`<strong>${point.regionName}</strong><br/>${point.year}: ${point.lifeExp.toFixed(1)} years`);
+    }
+
+    function hideHover() {
+      hoverDot.style('opacity', 0);
+      tooltip.style('opacity', 0);
+    }
+
+    function applyState(nextState, timeMs) {
+      if (!chartData) return;
+
+      currentState = {
+        ...currentState,
+        ...nextState,
+      };
+
+      if (Number.isFinite(timeMs)) {
+        currentTimelineTimeMs = Number(timeMs);
+      }
+
+      currentState.maxYear = clamp(Number(currentState.maxYear || 1900), AXIS_START_YEAR, AXIS_END_YEAR);
+      currentState.minYear = clamp(Number(currentState.minYear || AXIS_START_YEAR), AXIS_START_YEAR, currentState.maxYear);
+      currentDisplayYear = resolveDisplayYear(currentTimelineTimeMs);
+
+      renderLines();
+    }
+
+    function initialize(data) {
+      if (!data || !Array.isArray(data.regionLifeExpectancy)) {
+        return;
+      }
+
+      chartData = data;
+      setupBaseChart();
+      applyState(currentState, 0);
+    }
+
+    window.addEventListener('resize', () => {
+      if (!chartData) return;
+      setupBaseChart();
+      renderLines();
+    });
+
+    window.addEventListener('message', (event) => {
+      const payload = event.data;
+      if (!payload || !payload.type) return;
+
+      if (payload.type === 'DIVE_INIT') {
+        initialize(payload.data);
+      } else if (payload.type === 'DIVE_STATE') {
+        lastNarrativeState = payload.state || {};
+        lastNarrativeTimeMs = Number.isFinite(payload.time) ? Number(payload.time) : currentTimelineTimeMs;
+
+        if (!chartData) {
+          bootstrapStandalone();
+          return;
+        }
+
+        applyState(lastNarrativeState, lastNarrativeTimeMs);
+      }
+    });
+
+    window.setTimeout(() => {
+      if (!chartData) {
+        bootstrapStandalone();
+      }
+    }, 180);
+  </script>
+</body>
+</html>

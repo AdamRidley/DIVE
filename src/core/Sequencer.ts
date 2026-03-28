@@ -47,7 +47,8 @@ export class Sequencer {
     const delta = now - this.lastRafTime;
     this.lastRafTime = now;
     
-    this.currentTime += delta;
+    // Guard against occasional negative first-frame deltas from RAF timestamp jitter.
+    this.currentTime = Math.max(0, this.currentTime + delta);
     
     if (this.currentTime >= this.story.duration) {
       this.currentTime = this.story.duration;

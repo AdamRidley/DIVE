@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rosling Bubbles</title>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <style>
+    :root {
+      --bg: #fdf7ef;
+      --ink: #1f1b16;
+      --axis: #5d554b;
+      --grid: rgba(89, 76, 58, 0.18);
+      --panel: rgba(255, 255, 255, 0.85);
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: "Space Grotesk", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 20%, rgba(255, 173, 96, 0.22), transparent 32%),
+        radial-gradient(circle at 80% 0%, rgba(255, 226, 165, 0.28), transparent 30%),
+        linear-gradient(180deg, #fff9f2, #f6ebde 72%);
+    }
+
+    #chart {
+      width: 100%;
+      height: 100%;
+      position: relative;
+    }
+
+    .title {
+      font-size: 20px;
+      font-weight: 700;
+      fill: var(--ink);
+      letter-spacing: 0.01em;
+    }
+
+    .subtitle {
+      font-size: 12px;
+      fill: #665f56;
+    }
+
+    .axis text,
+    .axis path,
+    .axis line {
+      fill: var(--axis);
+      stroke: var(--axis);
+      font-size: 11px;
+    }
+
+    .grid line {
+      stroke: var(--grid);
+      stroke-dasharray: 4 5;
+    }
+
+    .grid path {
+      stroke: none;
+    }
+
+    .country {
+      stroke: rgba(30, 20, 10, 0.45);
+      stroke-width: 0.8;
+      cursor: pointer;
+      transition: opacity 220ms ease;
+    }
+
+    .country.selected {
+      stroke: #0a0a0a;
+      stroke-width: 2.4;
+    }
+
+    .trace-path {
+      fill: none;
+      stroke: #111;
+      stroke-width: 2;
+      stroke-dasharray: 5 4;
+      opacity: 0.9;
+      pointer-events: none;
+    }
+
+    .trace-label {
+      font-size: 12px;
+      font-weight: 600;
+      fill: #111;
+      paint-order: stroke;
+      stroke: rgba(255, 255, 255, 0.85);
+      stroke-width: 2;
+      pointer-events: none;
+    }
+
+    .year-tag {
+      font-size: 72px;
+      font-weight: 700;
+      fill: rgba(120, 93, 64, 0.18);
+      text-anchor: end;
+      pointer-events: none;
+    }
+
+    .tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(12, 10, 8, 0.9);
+      color: #fffdf9;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      padding: 8px 10px;
+      font-size: 12px;
+      line-height: 1.35;
+      opacity: 0;
+      transition: opacity 120ms ease;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+      white-space: nowrap;
+      z-index: 5;
+    }
+
+    .legend {
+      position: absolute;
+      top: 12px;
+      right: 16px;
+      background: var(--panel);
+      border: 1px solid rgba(31, 27, 22, 0.14);
+      border-radius: 10px;
+      padding: 8px 10px;
+      backdrop-filter: blur(2px);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .year-controls {
+      position: absolute;
+      right: 16px;
+      bottom: 140px;
+      min-width: 250px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(31, 27, 22, 0.14);
+      background: var(--panel);
+      backdrop-filter: blur(2px);
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 150ms ease;
+      z-index: 7;
+    }
+
+    .year-controls.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .year-controls .label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 12px;
+      color: #4f483f;
+    }
+
+    .year-controls input[type='range'] {
+      width: 100%;
+      accent-color: #9a5f20;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .legend-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      flex: 0 0 10px;
+    }
+
+    .pulse {
+      filter: brightness(1.15);
+    }
+  </style>
+</head>
+<body>
+  <div id="chart"></div>
+  <div id="tooltip" class="tooltip"></div>
+  <div id="legend" class="legend"></div>
+  <div id="year-controls" class="year-controls">
+    <label class="label">Explore Year: <strong id="year-readout">2020</strong></label>
+    <input id="year-slider" type="range" min="1950" max="2020" step="0.1" value="2020" />
+  </div>
+
+  <script>
+    const root = d3.select('#chart');
+    const tooltip = d3.select('#tooltip');
+    const legend = d3.select('#legend');
+    const yearControls = d3.select('#year-controls');
+    const yearSlider = d3.select('#year-slider');
+    const yearReadout = d3.select('#year-readout');
+
+    const margin = { top: 70, right: 35, bottom: 55, left: 62 };
+
+    let svg;
+    let x;
+    let y;
+    let r;
+    let xAxisGroup;
+    let yAxisGroup;
+    let gridGroup;
+    let pointsGroup;
+    let traceGroup;
+    let yearTag;
+
+    let dataModel = null;
+    let regionColor = new Map();
+    let yearIndex = new Map();
+    let countryYearIndex = new Map();
+    let countryIndex = new Map();
+
+    let currentYear = 1950;
+    let selectedCountryIds = new Set();
+    let dimOthers = false;
+    let focusCountries = [];
+    let shouldPulse = false;
+    let animationFrameId = null;
+    let currentTimelineTimeMs = 0;
+    let playbackIsPlaying = false;
+    let yearSliderEnabled = false;
+    let lastNarrativeState = null;
+    let lastNarrativeTimeMs = 0;
+    let fallbackBootstrapStarted = false;
+    const DEFAULT_DATA_URL = new URL('../data/wealth-health-gapminder.json', window.location.href).toString();
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function formatPopulation(value) {
+      return d3.format(',.0f')(value);
+    }
+
+    function standaloneDataUrl() {
+      const params = new URLSearchParams(window.location.search);
+      const value = params.get('data') || params.get('dataUrl');
+      return value ? new URL(value, window.location.href).toString() : DEFAULT_DATA_URL;
+    }
+
+    function showLoadError(message) {
+      root.selectAll('*').remove();
+      root
+        .append('div')
+        .style('position', 'absolute')
+        .style('inset', '0')
+        .style('display', 'grid')
+        .style('place-items', 'center')
+        .style('padding', '24px')
+        .style('text-align', 'center')
+        .style('font-size', '14px')
+        .style('color', 'var(--ink)')
+        .text(message);
+    }
+
+    async function bootstrapStandalone() {
+      if (dataModel || fallbackBootstrapStarted) return;
+      fallbackBootstrapStarted = true;
+
+      try {
+        const response = await fetch(standaloneDataUrl());
+        if (!response.ok) {
+          throw new Error(`Data request failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (dataModel) return;
+
+        // Messages can arrive while data is loading; read the latest buffered values now.
+        const latestNarrativeState = lastNarrativeState;
+        const latestNarrativeTimeMs = lastNarrativeTimeMs;
+        const latestPlaybackIsPlaying = playbackIsPlaying;
+
+        initialize(data);
+
+        playbackIsPlaying = latestPlaybackIsPlaying;
+        if (latestNarrativeState) {
+          lastNarrativeState = latestNarrativeState;
+          lastNarrativeTimeMs = latestNarrativeTimeMs;
+          applyState(latestNarrativeState, latestNarrativeTimeMs);
+        } else {
+          currentYear = 2020;
+          yearSliderEnabled = true;
+          shouldPulse = false;
+          dimOthers = false;
+          focusCountries = [];
+          setSelectedCountries([]);
+          renderYear(false);
+        }
+
+        updateYearControls();
+      } catch (error) {
+        console.error('Rosling Bubbles standalone bootstrap failed.', error);
+        showLoadError('Unable to load data for this standalone tool. Pass ?data=... to override the default JSON path.');
+      }
+    }
+
+    function stopAnimation() {
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+    }
+
+    function buildIndices(data) {
+      yearIndex = new Map();
+      countryYearIndex = new Map();
+      countryIndex = new Map();
+      regionColor = new Map((data.regions || []).map((region) => [region.id, region.color || '#888']));
+
+      for (const country of data.countrySeries || []) {
+        const countryId = String(country.id || '').toLowerCase();
+        countryIndex.set(countryId, {
+          ...country,
+          id: countryId,
+        });
+        const byYear = new Map();
+
+        for (const value of country.values || []) {
+          byYear.set(value.year, value);
+
+          if (!yearIndex.has(value.year)) {
+            yearIndex.set(value.year, []);
+          }
+
+          yearIndex.get(value.year).push({
+            id: countryId,
+            name: country.name,
+            regionId: country.regionId,
+            year: value.year,
+            lifeExp: value.lifeExp,
+            income: value.income,
+            population: value.population,
+          });
+        }
+
+        countryYearIndex.set(countryId, byYear);
+      }
+
+      for (const rows of yearIndex.values()) {
+        rows.sort((a, b) => b.population - a.population);
+      }
+    }
+
+    function interpolateCountryAtYear(country, year) {
+      const id = String(country.id || '').toLowerCase();
+      const byYear = countryYearIndex.get(id);
+      if (!byYear) return null;
+
+      const minYear = 1950;
+      const maxYear = 2020;
+      const clampedYear = clamp(year, minYear, maxYear);
+      const floorYear = Math.floor(clampedYear);
+      const ceilYear = Math.ceil(clampedYear);
+      const start = byYear.get(floorYear);
+      const end = byYear.get(ceilYear) || start;
+
+      if (!start || !end) {
+        return null;
+      }
+
+      const t = ceilYear === floorYear ? 0 : (clampedYear - floorYear) / (ceilYear - floorYear);
+      return {
+        id,
+        name: country.name,
+        regionId: country.regionId,
+        year: clampedYear,
+        income: start.income + ((end.income - start.income) * t),
+        lifeExp: start.lifeExp + ((end.lifeExp - start.lifeExp) * t),
+        population: start.population + ((end.population - start.population) * t),
+      };
+    }
+
+    function allValues() {
+      const values = [];
+      for (const country of dataModel.countrySeries || []) {
+        for (const row of country.values || []) {
+          values.push(row);
+        }
+      }
+      return values;
+    }
+
+    function buildScales(width, height) {
+      const values = allValues();
+      const incomes = values.map((value) => value.income).filter((value) => Number.isFinite(value) && value > 0);
+      const lifeValues = values.map((value) => value.lifeExp).filter((value) => Number.isFinite(value));
+      const populations = values.map((value) => value.population).filter((value) => Number.isFinite(value) && value > 0);
+
+      const incomeExtent = d3.extent(incomes);
+      const lifeExtent = d3.extent(lifeValues);
+      const populationExtent = d3.extent(populations);
+
+      x = d3
+        .scaleLog()
+        .domain([Math.max(120, incomeExtent[0] || 120), Math.max(1500, incomeExtent[1] || 1500)])
+        .range([margin.left, width - margin.right]);
+
+      y = d3
+        .scaleLinear()
+        .domain([Math.floor((lifeExtent[0] || 20) - 3), Math.ceil((lifeExtent[1] || 85) + 2)])
+        .range([height - margin.bottom, margin.top]);
+
+      r = d3
+        .scaleSqrt()
+        .domain([Math.max(1, populationExtent[0] || 1), populationExtent[1] || 1])
+        .range([2.8, 38]);
+    }
+
+    function setupSvg() {
+      root.selectAll('*').remove();
+
+      const width = root.node().clientWidth || 960;
+      const height = root.node().clientHeight || 560;
+
+      svg = root
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('viewBox', `0 0 ${width} ${height}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet');
+
+      buildScales(width, height);
+
+      gridGroup = svg
+        .append('g')
+        .attr('class', 'grid')
+        .attr('transform', `translate(${margin.left},0)`)
+        .call(
+          d3
+            .axisLeft(y)
+            .ticks(7)
+            .tickSize(-(width - margin.left - margin.right))
+            .tickFormat(() => '')
+        );
+
+      xAxisGroup = svg
+        .append('g')
+        .attr('class', 'axis')
+        .attr('transform', `translate(0,${height - margin.bottom})`)
+        .call(d3.axisBottom(x).ticks(7, '~s'));
+
+      yAxisGroup = svg
+        .append('g')
+        .attr('class', 'axis')
+        .attr('transform', `translate(${margin.left},0)`)
+        .call(d3.axisLeft(y).ticks(7));
+
+      pointsGroup = svg.append('g');
+      traceGroup = svg.append('g');
+
+      yearTag = svg
+        .append('text')
+        .attr('class', 'year-tag')
+        .attr('x', width - margin.right)
+        .attr('y', height - margin.bottom - 10)
+        .text(currentYear);
+
+      svg.append('text').attr('class', 'title').attr('x', margin.left).attr('y', 30).text('Rosling Bubbles: Health vs Wealth');
+      svg
+        .append('text')
+        .attr('class', 'subtitle')
+        .attr('x', margin.left)
+        .attr('y', 49)
+        .text('Income per person (log scale), life expectancy, and population by country');
+
+      svg
+        .append('text')
+        .attr('class', 'subtitle')
+        .attr('x', width - margin.right)
+        .attr('y', height - 12)
+        .attr('text-anchor', 'end')
+        .text('Income per person (PPP, inflation-adjusted)');
+
+      svg
+        .append('text')
+        .attr('class', 'subtitle')
+        .attr('transform', 'rotate(-90)')
+        .attr('x', -height / 2)
+        .attr('y', 18)
+        .attr('text-anchor', 'middle')
+        .text('Life expectancy (years)');
+
+      drawLegend();
+    }
+
+    function drawLegend() {
+      legend.selectAll('*').remove();
+
+      const regions = dataModel.regions || [];
+      for (const region of regions) {
+        const row = legend.append('div').attr('class', 'legend-item');
+        row.append('span').attr('class', 'legend-swatch').style('background', region.color || '#888');
+        row.append('span').text(region.name || region.id);
+      }
+    }
+
+    function yearRows(year) {
+      if (!dataModel?.countrySeries) return [];
+
+      const rows = [];
+      for (const country of dataModel.countrySeries) {
+        const row = interpolateCountryAtYear(country, year);
+        if (row) {
+          rows.push(row);
+        }
+      }
+
+      rows.sort((a, b) => b.population - a.population);
+      return rows;
+    }
+
+    function currentFocusSet() {
+      return new Set((focusCountries || []).map((country) => String(country).toLowerCase()));
+    }
+
+    function selectedCountryKey() {
+      return Array.from(selectedCountryIds).sort().join(',');
+    }
+
+    function setSelectedCountries(ids) {
+      selectedCountryIds = new Set((ids || []).map((id) => String(id).toLowerCase()));
+    }
+
+    function notifyInteract() {
+      window.parent?.postMessage({ type: 'DIVE_INTERACT', source: 'rosling-bubbles' }, '*');
+    }
+
+    function updateYearControls() {
+      const show = yearSliderEnabled && !playbackIsPlaying;
+      yearControls.classed('visible', show);
+      yearSlider.property('value', String(clamp(currentYear, 1950, 2020)));
+      yearReadout.text(String(Math.round(currentYear)));
+    }
+
+    function updatePulse(records) {
+      const circles = pointsGroup.selectAll('circle.country');
+      circles.classed('pulse', false);
+
+      if (!shouldPulse || records.length === 0) {
+        return;
+      }
+
+      const selected = d3.shuffle(records.slice()).slice(0, Math.min(8, records.length));
+      const selectedIds = new Set(selected.map((row) => row.id));
+      circles.filter((row) => selectedIds.has(row.id)).classed('pulse', true);
+    }
+
+    function traceValuesForCountry(countryId, year) {
+      const byYear = countryYearIndex.get(countryId);
+      if (!byYear) return [];
+
+      const clampedYear = clamp(year, 1950, 2020);
+      const floorYear = Math.floor(clampedYear);
+      const values = [];
+
+      for (let yValue = 1950; yValue <= floorYear; yValue += 1) {
+        const point = byYear.get(yValue);
+        if (point && point.income > 0 && point.population > 0) {
+          values.push({
+            year: yValue,
+            income: point.income,
+            lifeExp: point.lifeExp,
+            population: point.population,
+          });
+        }
+      }
+
+      const fraction = clampedYear - floorYear;
+      if (fraction > 0) {
+        const start = byYear.get(floorYear);
+        const end = byYear.get(floorYear + 1) || start;
+        if (start && end) {
+          values.push({
+            year: clampedYear,
+            income: start.income + ((end.income - start.income) * fraction),
+            lifeExp: start.lifeExp + ((end.lifeExp - start.lifeExp) * fraction),
+            population: start.population + ((end.population - start.population) * fraction),
+          });
+        }
+      }
+
+      return values;
+    }
+
+    function renderTrace() {
+      traceGroup.selectAll('*').remove();
+      const selectedIds = Array.from(selectedCountryIds);
+      if (!selectedIds.length) return;
+
+      const line = d3
+        .line()
+        .x((row) => x(row.income))
+        .y((row) => y(row.lifeExp));
+
+      selectedIds.forEach((countryId, index) => {
+        const country = countryIndex.get(countryId);
+        if (!country) return;
+
+        const values = traceValuesForCountry(countryId, currentYear);
+        if (values.length < 2) return;
+
+        const stroke = d3.color(regionColor.get(country.regionId) || '#111')?.darker(0.9).formatHex() || '#111';
+
+        traceGroup
+          .append('path')
+          .attr('class', 'trace-path')
+          .attr('stroke', stroke)
+          .attr('d', line(values));
+
+        const latest = values[values.length - 1];
+        traceGroup
+          .append('text')
+          .attr('class', 'trace-label')
+          .attr('x', x(latest.income) + 9)
+          .attr('y', y(latest.lifeExp) - 8 - (index * 12))
+          .attr('fill', stroke)
+          .text(country.name);
+      });
+    }
+
+    function handleCountryClick(event, row) {
+      notifyInteract();
+      const id = String(row.id).toLowerCase();
+      const multiSelect = Boolean(event.ctrlKey || event.metaKey);
+
+      if (multiSelect) {
+        if (selectedCountryIds.has(id)) {
+          selectedCountryIds.delete(id);
+        } else {
+          selectedCountryIds.add(id);
+        }
+      } else if (selectedCountryIds.size === 1 && selectedCountryIds.has(id)) {
+        selectedCountryIds.clear();
+      } else {
+        selectedCountryIds = new Set([id]);
+      }
+
+      renderYear(false);
+    }
+
+    function renderYear(animate = true) {
+      const rows = yearRows(currentYear).filter((row) => row.income > 0 && row.population > 0);
+      const focusSet = currentFocusSet();
+
+      const circles = pointsGroup
+        .selectAll('circle.country')
+        .data(rows, (row) => row.id)
+        .join(
+          (enter) =>
+            enter
+              .append('circle')
+              .attr('class', 'country')
+              .attr('cx', (row) => x(row.income))
+              .attr('cy', (row) => y(row.lifeExp))
+              .attr('r', 0)
+              .attr('fill', (row) => regionColor.get(row.regionId) || '#777')
+              .call((selection) =>
+                selection
+                  .transition()
+                  .duration(250)
+                  .attr('r', (row) => r(row.population))
+              ),
+          (update) => update,
+          (exit) => exit.transition().duration(200).attr('r', 0).remove()
+        )
+        .classed('selected', (row) => selectedCountryIds.has(String(row.id).toLowerCase()))
+        .style('opacity', (row) => {
+          if (!dimOthers || focusSet.size === 0) {
+            return 0.86;
+          }
+          return focusSet.has(String(row.id).toLowerCase()) ? 1 : 0.15;
+        })
+        .on('mousemove', (event, row) => {
+          tooltip
+            .style('opacity', 1)
+            .style('left', `${Math.min(event.offsetX + 18, root.node().clientWidth - 210)}px`)
+            .style('top', `${Math.max(8, event.offsetY - 44)}px`)
+            .html(
+              `<strong>${row.name}</strong><br/>` +
+              `Year: ${Math.round(row.year)}<br/>` +
+              `Income: ${d3.format(',.0f')(row.income)}<br/>` +
+              `Life expectancy: ${row.lifeExp.toFixed(1)}<br/>` +
+              `Population: ${formatPopulation(row.population)}`
+            );
+        })
+        .on('mouseleave', () => {
+          tooltip.style('opacity', 0);
+        })
+        .on('click', (event, row) => {
+          handleCountryClick(event, row);
+        });
+
+      if (animate) {
+        circles
+          .transition()
+          .duration(350)
+          .ease(d3.easeCubicOut)
+          .attr('cx', (row) => x(row.income))
+          .attr('cy', (row) => y(row.lifeExp))
+          .attr('r', (row) => r(row.population));
+      } else {
+        circles
+          .attr('cx', (row) => x(row.income))
+          .attr('cy', (row) => y(row.lifeExp))
+          .attr('r', (row) => r(row.population));
+      }
+
+      yearTag.text(Math.round(currentYear));
+      updatePulse(rows);
+      renderTrace();
+      updateYearControls();
+    }
+
+    function animateYears(fromYear, toYear, duration) {
+      stopAnimation();
+
+      const start = performance.now();
+      const minYear = Math.min(fromYear, toYear);
+      const maxYear = Math.max(fromYear, toYear);
+
+      function frame(now) {
+        const elapsed = now - start;
+        const progress = clamp(elapsed / Math.max(1, duration), 0, 1);
+        const nextYear = fromYear + ((toYear - fromYear) * progress);
+
+        const clampedYear = clamp(nextYear, minYear, maxYear);
+        if (Math.abs(clampedYear - currentYear) > 0.0001) {
+          currentYear = clampedYear;
+          renderYear(false);
+        }
+
+        if (progress < 1) {
+          animationFrameId = requestAnimationFrame(frame);
+        } else {
+          animationFrameId = null;
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(frame);
+    }
+
+    function resolveInterpolatedYear(state, timeMs) {
+      const minYear = 1950;
+      const maxYear = 2020;
+      const fromYear = clamp(Number(state.fromYear || minYear), minYear, maxYear);
+      const toYear = clamp(Number(state.toYear || maxYear), minYear, maxYear);
+      const segmentStart = Number(state.segmentStartTimeMs);
+      const segmentEnd = Number(state.segmentEndTimeMs);
+
+      if (Boolean(state.streamTime) && Number.isFinite(timeMs) && Number.isFinite(segmentStart) && Number.isFinite(segmentEnd) && segmentEnd > segmentStart) {
+        const progress = clamp((timeMs - segmentStart) / (segmentEnd - segmentStart), 0, 1);
+        return fromYear + ((toYear - fromYear) * progress);
+      }
+
+      return fromYear;
+    }
+
+    function applyState(state, timeMs, options = {}) {
+      if (!dataModel || !state) return;
+
+      const resetUnspecified = Boolean(options.resetUnspecified);
+      const action = state.action || 'setYear';
+      const minYear = 1950;
+      const maxYear = 2020;
+      const previousYear = currentYear;
+      const previousDim = dimOthers;
+      const previousPulse = shouldPulse;
+      const previousFocusKey = (focusCountries || []).join(',');
+      const previousSelectedKey = selectedCountryKey();
+
+      if (Number.isFinite(timeMs)) {
+        currentTimelineTimeMs = Number(timeMs);
+      }
+
+      if (Array.isArray(state.focusCountries)) {
+        focusCountries = state.focusCountries;
+      } else if (resetUnspecified) {
+        focusCountries = [];
+      }
+
+      if (typeof state.dimOthers === 'boolean') {
+        dimOthers = state.dimOthers;
+      } else if (resetUnspecified) {
+        dimOthers = false;
+      }
+
+      if (typeof state.pulse === 'boolean') {
+        shouldPulse = state.pulse;
+      } else if (resetUnspecified) {
+        shouldPulse = false;
+      }
+
+      if (Array.isArray(state.selectedCountries)) {
+        setSelectedCountries(state.selectedCountries);
+      } else if (resetUnspecified) {
+        setSelectedCountries([]);
+      }
+
+      yearSliderEnabled = action === 'freezeYear' && Boolean(state.yearSlider);
+
+      if (action === 'setYear') {
+        stopAnimation();
+        currentYear = clamp(Number(state.year || currentYear), minYear, maxYear);
+        renderYear(!Boolean(state.streamTime));
+        return;
+      }
+
+      if (action === 'playYears') {
+        shouldPulse = false;
+
+        if (Boolean(state.streamTime)) {
+          currentYear = resolveInterpolatedYear(state, currentTimelineTimeMs);
+
+          const focusKey = (focusCountries || []).join(',');
+          const selectedKey = selectedCountryKey();
+          if (
+            Math.abs(currentYear - previousYear) > 0.0001 ||
+            dimOthers !== previousDim ||
+            shouldPulse !== previousPulse ||
+            focusKey !== previousFocusKey ||
+            selectedKey !== previousSelectedKey
+          ) {
+            renderYear(false);
+          }
+          return;
+        }
+
+        const fromYear = clamp(Number(state.fromYear || currentYear), minYear, maxYear);
+        const toYear = clamp(Number(state.toYear || maxYear), minYear, maxYear);
+        currentYear = fromYear;
+        renderYear(false);
+        animateYears(fromYear, toYear, Number(state.duration || 12000));
+        return;
+      }
+
+      if (action === 'freezeYear') {
+        stopAnimation();
+        currentYear = clamp(Number(state.year || currentYear), minYear, maxYear);
+        renderYear(false);
+      }
+    }
+
+    function initialize(data) {
+      if (!data || !Array.isArray(data.countrySeries)) {
+        return;
+      }
+
+      dataModel = data;
+      playbackIsPlaying = false;
+      yearSliderEnabled = false;
+      setSelectedCountries([]);
+      buildIndices(dataModel);
+      setupSvg();
+      renderYear(false);
+    }
+
+    yearSlider.on('pointerdown', () => {
+      notifyInteract();
+    });
+
+    yearSlider.on('input', (event) => {
+      const target = event.target;
+      const nextYear = clamp(Number(target.value), 1950, 2020);
+      if (!Number.isFinite(nextYear)) {
+        return;
+      }
+
+      currentYear = nextYear;
+      shouldPulse = false;
+      renderYear(false);
+      notifyInteract();
+    });
+
+    window.addEventListener('resize', () => {
+      if (!dataModel) return;
+      setupSvg();
+      renderYear(false);
+    });
+
+    window.addEventListener('message', (event) => {
+      const payload = event.data;
+      if (!payload || !payload.type) return;
+
+      if (payload.type === 'DIVE_INIT') {
+        initialize(payload.data);
+      } else if (payload.type === 'DIVE_STATE') {
+        lastNarrativeState = payload.state || {};
+        lastNarrativeTimeMs = Number.isFinite(payload.time) ? Number(payload.time) : currentTimelineTimeMs;
+
+        if (!dataModel) {
+          bootstrapStandalone();
+          return;
+        }
+
+        applyState(lastNarrativeState, lastNarrativeTimeMs);
+      } else if (payload.type === 'DIVE_PLAYBACK') {
+        const nextPlaybackIsPlaying = Boolean(payload.isPlaying);
+        const didResumePlayback = !playbackIsPlaying && nextPlaybackIsPlaying;
+        playbackIsPlaying = nextPlaybackIsPlaying;
+
+        if (!dataModel) {
+          bootstrapStandalone();
+          return;
+        }
+
+        if (didResumePlayback && lastNarrativeState) {
+          const resumeTime = Number.isFinite(payload.time) ? Number(payload.time) : currentTimelineTimeMs;
+          applyState(lastNarrativeState, resumeTime, { resetUnspecified: true });
+        }
+
+        updateYearControls();
+      }
+    });
+
+    window.setTimeout(() => {
+      if (!dataModel) {
+        bootstrapStandalone();
+      }
+    }, 180);
+  </script>
+</body>
+</html>

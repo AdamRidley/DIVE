@@ -1,0 +1,391 @@
+{
+  "title": "The Wealth and Health of Nations",
+  "duration": 110000,
+  "timelineSections": [
+    {
+      "id": "tool1-origins",
+      "startTime": 0,
+      "endTime": 10000,
+      "label": "Origins",
+      "description": "Tool 1: 1800 to 1900 context",
+      "color": "rgba(90, 145, 255, 0.35)"
+    },
+    {
+      "id": "tool1-shock",
+      "startTime": 10000,
+      "endTime": 20000,
+      "label": "Shock Era",
+      "description": "Tool 1: 1900 to 1950 with 1918 annotation",
+      "color": "rgba(250, 151, 88, 0.35)"
+    },
+    {
+      "id": "tool1-completion",
+      "startTime": 20000,
+      "endTime": 25000,
+      "label": "Modern Rise",
+      "description": "Tool 1: 1950 to 2020 completion",
+      "color": "rgba(108, 194, 154, 0.35)"
+    },
+    {
+      "id": "tool1-hold",
+      "startTime": 25000,
+      "endTime": 30000,
+      "label": "Explore Hold",
+      "description": "Tool 1: final interaction window",
+      "color": "rgba(112, 207, 136, 0.35)"
+    },
+    {
+      "id": "tool2-baseline",
+      "startTime": 30000,
+      "endTime": 45000,
+      "label": "1950 Baseline",
+      "description": "Tool 2 phase 1: inspect the starting cluster",
+      "color": "rgba(84, 170, 240, 0.35)"
+    },
+    {
+      "id": "tool2-catchup",
+      "startTime": 45000,
+      "endTime": 60000,
+      "label": "Catch-up Run",
+      "description": "Tool 2 phase 2: 1950 to 2020 motion",
+      "color": "rgba(255, 186, 92, 0.35)"
+    },
+    {
+      "id": "tool2-freeze",
+      "startTime": 60000,
+      "endTime": 75000,
+      "label": "2020 Freeze",
+      "description": "Tool 2 phase 3: pause and inspect at 2020",
+      "color": "rgba(230, 130, 178, 0.35)"
+    },
+    {
+      "id": "tool3-world",
+      "startTime": 75000,
+      "endTime": 87000,
+      "label": "World View",
+      "description": "Tool 3: global population blocks",
+      "color": "rgba(95, 160, 255, 0.35)"
+    },
+    {
+      "id": "tool3-asia-zoom",
+      "startTime": 87000,
+      "endTime": 98000,
+      "label": "Asia Zoom",
+      "description": "Tool 3: zoom into Asia",
+      "color": "rgba(255, 170, 92, 0.35)"
+    },
+    {
+      "id": "tool3-return",
+      "startTime": 98000,
+      "endTime": 105000,
+      "label": "World Return",
+      "description": "Tool 3: zoom back to world",
+      "color": "rgba(168, 146, 255, 0.35)"
+    },
+    {
+      "id": "tool3-hold",
+      "startTime": 105000,
+      "endTime": 110000,
+      "label": "Explore Hold",
+      "description": "Tool 3: final interaction window",
+      "color": "rgba(106, 214, 196, 0.35)"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "phase-1-lifespan-lines",
+      "tool": "/examples/the_wealth_and_health_of_nations/tools/lifespan-lines.html",
+      "pauseOnInteract": false,
+      "startTime": 0,
+      "endTime": 30000,
+      "sendData": false,
+      "keyframes": [
+        {
+          "time": 0,
+          "state": {
+            "maxYear": 1900,
+            "minYear": 1800,
+            "fixedDomainEndYear": 2020,
+            "showAnnotation": false,
+            "annotationYear": 1918,
+            "streamTime": true,
+            "segmentStartTimeMs": 0,
+            "segmentEndTimeMs": 10000,
+            "pauseOnInteract": false
+          }
+        },
+        {
+          "time": 10000,
+          "state": {
+            "maxYear": 1950,
+            "minYear": 1900,
+            "fixedDomainEndYear": 2020,
+            "showAnnotation": true,
+            "annotationYear": 1918,
+            "streamTime": true,
+            "segmentStartTimeMs": 10000,
+            "segmentEndTimeMs": 20000,
+            "pauseOnInteract": false
+          }
+        },
+        {
+          "time": 20000,
+          "state": {
+            "maxYear": 2020,
+            "minYear": 1950,
+            "fixedDomainEndYear": 2020,
+            "showAnnotation": false,
+            "annotationYear": 1918,
+            "streamTime": true,
+            "segmentStartTimeMs": 20000,
+            "segmentEndTimeMs": 25000,
+            "pauseOnInteract": false
+          }
+        },
+        {
+          "time": 25000,
+          "state": {
+            "maxYear": 2020,
+            "minYear": 1950,
+            "fixedDomainEndYear": 2020,
+            "showAnnotation": false,
+            "annotationYear": 1918,
+            "streamTime": false,
+            "pauseOnInteract": true
+          }
+        }
+      ],
+      "overlays": [
+        {
+          "time": 0,
+          "duration": 10000,
+          "type": "text",
+          "content": "In 1800, global life expectancy was roughly 30 years old.",
+          "placement": {
+            "anchor": "top",
+            "offsetY": "70px"
+          }
+        },
+        {
+          "time": 10000,
+          "duration": 10000,
+          "type": "text",
+          "content": "Progress was interrupted by pandemics and conflicts. The 1918 shock is visible across regions.",
+          "placement": {
+            "anchor": "topLeft",
+            "offset": "70px"
+          }
+        },
+        {
+          "time": 20000,
+          "duration": 5000,
+          "type": "text",
+          "content": "After 1950, progress accelerates and life expectancy climbs toward modern levels.",
+          "placement": {
+            "anchor": "top",
+            "offsetY": "70px"
+          }
+        },
+        {
+          "time": 25000,
+          "duration": 5000,
+          "type": "text",
+          "content": "Click to pause and inspect any region trend.",
+          "placement": {
+            "anchor": "top",
+            "offsetY": "70px"
+          },
+          "hideWhenPaused": true
+        }
+      ]
+    },
+    {
+      "id": "phase-2-rosling-bubbles",
+      "tool": "/examples/the_wealth_and_health_of_nations/tools/rosling-bubbles.html",
+      "pauseOnInteract": false,
+      "startTime": 30000,
+      "endTime": 75000,
+      "sendData": false,
+      "keyframes": [
+        {
+          "time": 0,
+          "state": {
+            "action": "setYear",
+            "year": 1950,
+            "focusCountries": [],
+            "selectedCountries": [],
+            "dimOthers": false,
+            "pulse": false,
+            "yearSlider": false,
+            "pauseOnInteract": false
+          }
+        },
+        {
+          "time": 15000,
+          "state": {
+            "action": "playYears",
+            "fromYear": 1950,
+            "toYear": 2020,
+            "duration": 15000,
+            "streamTime": true,
+            "segmentStartTimeMs": 45000,
+            "segmentEndTimeMs": 60000,
+            "dimOthers": true,
+            "focusCountries": ["chn", "ind"],
+            "selectedCountries": ["chn", "ind"],
+            "pulse": false,
+            "yearSlider": false,
+            "pauseOnInteract": true
+          }
+        },
+        {
+          "time": 30000,
+          "state": {
+            "action": "freezeYear",
+            "year": 2020,
+            "yearSlider": true,
+            "selectedCountries": [],
+            "dimOthers": false,
+            "pulse": false,
+            "pauseOnInteract": true
+          }
+        }
+      ],
+      "overlays": [
+        {
+          "time": 0,
+          "duration": 15000,
+          "type": "text",
+          "content": "Health and wealth are deeply connected. In 1950, most countries cluster in the bottom-left.",
+          "placement": {
+            "anchor": "topLeft",
+            "offset": "70px"
+          }
+        },
+        {
+          "time": 15000,
+          "duration": 15000,
+          "type": "text",
+          "content": "Watch the rapid ascent of China and India as the world catches up.",
+          "placement": {
+            "anchor": "bottom",
+            "offsetY": "-70px"
+          }
+        },
+        {
+          "time": 30000,
+          "duration": 15000,
+          "type": "text",
+          "content": "By 2020, the world is far healthier and richer. Pause to explore and click bubbles to trace paths.",
+          "placement": {
+            "anchor": "bottom",
+            "offsetY": "-70px"
+          },
+          "hideWhenPaused": true
+        }
+      ]
+    },
+    {
+      "id": "phase-3-population-blocks",
+      "tool": "/examples/the_wealth_and_health_of_nations/tools/population-blocks.html",
+      "pauseOnInteract": true,
+      "startTime": 75000,
+      "endTime": 110000,
+      "sendData": false,
+      "keyframes": [
+        {
+          "time": 0,
+          "state": {
+            "view": "world",
+            "highlightRegion": null,
+            "fadeOut": false,
+            "duration": 700,
+            "pauseOnInteract": true
+          }
+        },
+        {
+          "time": 12000,
+          "state": {
+            "view": "world",
+            "highlightRegion": null,
+            "dimRegion": "asia",
+            "fadeOut": false,
+            "duration": 700,
+            "pauseOnInteract": true
+          }
+        },
+        {
+          "time": 17500,
+          "state": {
+            "view": "asia",
+            "highlightRegion": null,
+            "dimRegion": null,
+            "fadeOut": false,
+            "duration": 1300,
+            "pauseOnInteract": true
+          }
+        },
+        {
+          "time": 23000,
+          "state": {
+            "view": "world",
+            "highlightRegion": null,
+            "dimRegion": null,
+            "fadeOut": false,
+            "duration": 1200,
+            "pauseOnInteract": true
+          }
+        },
+        {
+          "time": 30000,
+          "state": {
+            "view": "world",
+            "highlightRegion": null,
+            "fadeOut": false,
+            "duration": 900,
+            "pauseOnInteract": true
+          }
+        }
+      ],
+      "overlays": [
+        {
+          "time": 0,
+          "duration": 12000,
+          "type": "text",
+          "content": "A healthier world led to a population boom. Today, the global population is distributed like this.",
+          "placement": {
+            "anchor": "bottom"
+          }
+        },
+        {
+          "time": 12000,
+          "duration": 11000,
+          "type": "text",
+          "content": "Asia is home to more than half of humanity, anchored by the scale of China and India.",
+          "placement": {
+            "anchor": "bottom"
+          }
+        },
+        {
+          "time": 23000,
+          "duration": 7000,
+          "type": "text",
+          "content": "Where people live shapes demand, infrastructure pressure, and long-run development pathways.",
+          "placement": {
+            "anchor": "bottom"
+          }
+        },
+        {
+          "time": 30000,
+          "duration": 5000,
+          "type": "text",
+          "content": "Click any continent to navigate. Interaction will pause playback.",
+          "placement": {
+            "anchor": "bottom"
+          },
+          "hideWhenPaused": true
+        }
+      ]
+    }
+  ]
+}

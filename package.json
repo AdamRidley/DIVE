@@ -6,7 +6,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "build:wealth-health-data": "node examples/the_wealth_and_health_of_nations/scripts/build-gapminder-data.mjs"
   },
   "repository": {
     "type": "git",
