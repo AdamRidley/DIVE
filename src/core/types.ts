@@ -21,7 +21,7 @@ export interface Scene {
   tool: string; // Which adapter to load from the tool registry
   startTime: number; // in milliseconds
   endTime: number;
-  data?: unknown; // optional URL or inline data to provide to the tool
+  data?: string | object; // optional URL or inline data to provide to the tool
   sendData?: boolean; // if false, DIVE mounts the tool without sending scene.data
   pauseOnInteract?: boolean; // If true, tool interaction pauses playback for this scene
   keyframes: Keyframe[];
