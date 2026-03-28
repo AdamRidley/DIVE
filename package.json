@@ -1,7 +1,7 @@
 {
   "name": "dive",
   "version": "1.0.0",
-  "description": "DIVE is a framework for creating \"Interruptible Narrative Visualizations.\" It bridges the gap between curated, author-driven data stories (like videos) and user-driven exploratory tools (like interactive dashboards).",
+  "description": "DIVE is a framework for creating \"Interruptible Narrative Visualizations (INV).\" It bridges the gap between curated, author-driven data stories (like videos) and user-driven exploratory tools (like interactive dashboards).",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",

@@ -2,7 +2,7 @@
 
 ## 1. Concept & Descriptive Overview (The Consumer Experience)
 
-This framework provides an "Interruptible Narrative Visualization." It bridges the gap between a curated, author-driven data story (like a video) and a user-driven exploratory tool (like an interactive dashboard).
+This framework provides an "Interruptible Narrative Visualization (INV)." It bridges the gap between a curated, author-driven data story (like a video) and a user-driven exploratory tool (like an interactive dashboard).
 
 **The Consumer Interface:**
 

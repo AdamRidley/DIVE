@@ -1,6 +1,6 @@
 # DIVE (Directed Interactive Video/Visualisation Experience)
 
-DIVE is a framework for creating "Interruptible Narrative Visualizations." It bridges the gap between curated, author-driven data stories (like videos) and user-driven exploratory tools (like interactive dashboards).
+DIVE is a framework for creating "Interruptible Narrative Visualizations (INV)." It bridges the gap between curated, author-driven data stories (like videos) and user-driven exploratory tools (like interactive dashboards).
 
 ## Core Concept
 - **Watch Mode:** An automated narrative plays, panning, zooming, and highlighting data to tell a specific story.
