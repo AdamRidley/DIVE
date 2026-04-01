@@ -94,7 +94,7 @@
   "scenes": [
     {
       "id": "phase-1-lifespan-lines",
-      "tool": "/examples/the_wealth_and_health_of_nations/tools/lifespan-lines.html",
+      "tool": "tools/lifespan-lines.html",
       "pauseOnInteract": false,
       "startTime": 0,
       "endTime": 30000,
@@ -201,7 +201,7 @@
     },
     {
       "id": "phase-2-rosling-bubbles",
-      "tool": "/examples/the_wealth_and_health_of_nations/tools/rosling-bubbles.html",
+      "tool": "tools/rosling-bubbles.html",
       "pauseOnInteract": false,
       "startTime": 30000,
       "endTime": 75000,
@@ -287,7 +287,7 @@
     },
     {
       "id": "phase-3-population-blocks",
-      "tool": "/examples/the_wealth_and_health_of_nations/tools/population-blocks.html",
+      "tool": "tools/population-blocks.html",
       "pauseOnInteract": true,
       "startTime": 75000,
       "endTime": 110000,
