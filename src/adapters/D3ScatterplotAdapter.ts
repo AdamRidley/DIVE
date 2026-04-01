@@ -80,7 +80,7 @@ export class D3ScatterplotAdapter implements IAdapter {
     this.svg.call(this.zoomBehavior);
   }
 
-  setState(state: any, timeMs?: number): void {
+  setState(state: any, _timeMs?: number): void {
     if (!this.svg) return;
     
     // State might contain highlights: "highlight": "USA"

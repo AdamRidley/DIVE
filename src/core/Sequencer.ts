@@ -1,4 +1,4 @@
-import { Story, Scene, Keyframe, NarrativeState, Overlay } from './types';
+import { Story, Scene, NarrativeState } from './types';
 
 export type SequencerCallback = (state: NarrativeState) => void;
 

@@ -4,9 +4,11 @@
   "description": "DIVE is a framework for creating \"Interruptible Narrative Visualizations (INV).\" It bridges the gap between curated, author-driven data stories (like videos) and user-driven exploratory tools (like interactive dashboards).",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run typecheck",
     "dev": "vite",
     "build": "vite build",
+    "test:ci": "npm run typecheck && npm run build",
     "build:wealth-health-data": "node examples/the_wealth_and_health_of_nations/scripts/build-gapminder-data.mjs"
   },
   "repository": {

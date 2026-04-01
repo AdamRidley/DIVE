@@ -78,7 +78,7 @@ export class D3MapAdapter implements IAdapter {
     this.svg.call(this.zoomBehavior);
   }
 
-  setState(state: any, timeMs?: number): void {
+  setState(state: any, _timeMs?: number): void {
     if (!this.svg || !this.zoomBehavior) return;
     
     if (state.panTo) {
