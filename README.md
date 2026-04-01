@@ -37,7 +37,7 @@ By default, the release workflow pushes to `ghcr.io`.
 
 To push to a custom/private registry, configure these GitHub repository settings:
 
-- Variables: `DOCKER_REGISTRY`, `DOCKER_IMAGE_REPO` (example: `dive-example` or `myorg/dive-example`)
+- Variables: `DOCKER_REGISTRY`, `DOCKER_IMAGE_REPO` (example: `dive-example` or `myorg/dive-example`, must be lowercase)
 - Secrets: `DOCKER_REGISTRY_USERNAME`, `DOCKER_REGISTRY_PASSWORD`
 
 ### Triggering a release
