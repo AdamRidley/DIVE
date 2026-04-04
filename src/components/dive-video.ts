@@ -34,6 +34,8 @@ export class DiveVideo extends LitElement {
   @state() private currentTime = 0;
   @state() private activeNarrativeState: NarrativeState | null = null;
   @state() private activeToolId: string | null = null;
+  @state() private isFullscreen = false;
+  @state() private isUIHidden = false;
 
   @query('#canvas-container') private canvasContainer!: HTMLElement;
 
@@ -43,6 +45,7 @@ export class DiveVideo extends LitElement {
   private activeScenePauseOnInteract = false;
   private isScrubbing = false;
   private scrubberElement: HTMLElement | null = null;
+  private hideUIHandle = 0;
 
   static styles = css`
     :host {
@@ -54,17 +57,38 @@ export class DiveVideo extends LitElement {
       overflow: hidden;
       font-family: sans-serif;
     }
+    .video-section {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      bottom: 60px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #000;
+      transition: bottom 0.3s ease-in-out;
+    }
+    .video-section.fullscreen {
+      bottom: 0;
+    }
+    .video-ratio-wrapper {
+      width: 100vw;
+      max-width: 100%;
+      max-height: 100%;
+      aspect-ratio: var(--aspect-ratio, 16/9);
+      position: relative;
+    }
     #canvas-container {
       width: 100%;
-      height: calc(100% - 60px); /* Leave room for controls */
+      height: 100%;
       background: #f4f4f4;
-      position: relative;
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
     }
     /* SVG Styling inside Shadow DOM via adapter requires standard CSS vars or global bleed, but for PoC we'll inject via Lit if needed. D3 inserts inline styles. */
 
     .overlays {
       position: absolute;
-      top: 0; left: 0; right: 0; bottom: 60px;
+      top: 0; left: 0; right: 0; bottom: 0;
       pointer-events: none; /* Let clicks pass to the canvas underneath */
     }
     .overlay-item {
@@ -79,8 +103,7 @@ export class DiveVideo extends LitElement {
     
     .controls {
       position: absolute;
-      bottom: 0;
-      width: 100%;
+      bottom: 0; left: 0; right: 0;
       height: 60px;
       background: #222;
       display: flex;
@@ -88,6 +111,25 @@ export class DiveVideo extends LitElement {
       padding: 0 10px;
       box-sizing: border-box;
       color: white;
+      transition: transform 0.3s ease-in-out;
+      z-index: 10;
+    }
+    .controls.hidden {
+      transform: translateY(100%);
+    }
+    .fullscreen-btn {
+      background: transparent;
+      padding: 6px;
+      margin-left: 10px;
+      margin-right: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .fullscreen-btn svg {
+      width: 20px;
+      height: 20px;
+      fill: white;
     }
     button {
       background: #444;
@@ -158,6 +200,13 @@ export class DiveVideo extends LitElement {
     }
   `;
 
+  connectedCallback() {
+    super.connectedCallback();
+    document.addEventListener('fullscreenchange', this.handleFullscreenChange);
+    this.addEventListener('pointermove', this.resetUIHideTimer);
+    this.addEventListener('pointerdown', this.resetUIHideTimer);
+  }
+
   protected async firstUpdated() {
     if (this.src) {
       await this.loadStory(this.src);
@@ -167,6 +216,50 @@ export class DiveVideo extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback();
     this.stopScrubTracking();
+    document.removeEventListener('fullscreenchange', this.handleFullscreenChange);
+    this.removeEventListener('pointermove', this.resetUIHideTimer);
+    this.removeEventListener('pointerdown', this.resetUIHideTimer);
+    if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
+  }
+
+  private toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      this.requestFullscreen().catch(err => {
+        console.error(`Error attempting to enable fullscreen mode: ${err.message} (${err.name})`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  }
+
+  private handleFullscreenChange = () => {
+    this.isFullscreen = !!document.fullscreenElement && document.fullscreenElement === this;
+    
+    if (this.isFullscreen) {
+      // Attempt mobile landscape lock
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(() => { /* ignore if not supported or not allowed */ });
+      }
+      this.resetUIHideTimer();
+    } else {
+      if (screen.orientation && screen.orientation.unlock) {
+        screen.orientation.unlock();
+      }
+      this.isUIHidden = false;
+      if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
+    }
+  }
+
+  private resetUIHideTimer = () => {
+    if (!this.isFullscreen) {
+      this.isUIHidden = false;
+      return;
+    }
+    this.isUIHidden = false;
+    if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
+    this.hideUIHandle = window.setTimeout(() => {
+      this.isUIHidden = true;
+    }, 2500);
   }
 
   private async loadStory(url: string) {
@@ -536,20 +629,27 @@ export class DiveVideo extends LitElement {
       return true;
     });
 
+    const aspectRatioRaw = this.story?.aspectRatio || '16:9';
+    const aspectRatioCSS = aspectRatioRaw.replace(':', '/');
+
     return html`
-      <div id="canvas-container"></div>
-      
-      <!-- Overlay Layer -->
-      <div class="overlays">
-        ${visibleOverlays.map(o => html`
-          <div class="overlay-item" style=${this.getOverlayPlacementStyle(o)}>
-            ${o.type === 'text' ? html`<p>${o.content}</p>` : html`<img src="${o.content}" width="100%" />`}
+      <div class="video-section ${this.isFullscreen ? 'fullscreen' : ''}">
+        <div class="video-ratio-wrapper" style="--aspect-ratio: ${aspectRatioCSS}">
+          <div id="canvas-container"></div>
+          
+          <!-- Overlay Layer -->
+          <div class="overlays">
+            ${visibleOverlays.map(o => html`
+              <div class="overlay-item" style=${this.getOverlayPlacementStyle(o)}>
+                ${o.type === 'text' ? html`<p>${o.content}</p>` : html`<img src="${o.content}" width="100%" />`}
+              </div>
+            `)}
           </div>
-        `)}
+        </div>
       </div>
 
       <!-- Controls Layer -->
-      <div class="controls">
+      <div class="controls ${this.isFullscreen && this.isUIHidden ? 'hidden' : ''}">
         <button @click=${this.togglePlay}>${this.isPlaying ? 'Pause' : 'Play'}</button>
         
         <div class="scrubber" @pointerdown=${this.handleScrubPointerDown}>
@@ -583,6 +683,14 @@ export class DiveVideo extends LitElement {
         <div class="time-display">
           ${this.formatTime(this.currentTime)} / ${this.formatTime(duration)}
         </div>
+
+        <button class="fullscreen-btn" @click=${this.toggleFullscreen} title="Toggle Fullscreen" aria-label="Toggle Fullscreen">
+          <svg viewBox="0 0 24 24">
+            ${this.isFullscreen 
+              ? html`<path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>` 
+              : html`<path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>`}
+          </svg>
+        </button>
       </div>
       
       <!-- Accessibility Layer: Parallel DOM (Hidden visually) -->
