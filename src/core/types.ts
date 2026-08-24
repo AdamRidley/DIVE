@@ -3,7 +3,8 @@
 export interface Story {
   title: string;
   duration: number; // total duration in milliseconds
-  aspectRatio?: string; // e.g., "16/9" or "4/3"
+  // "9:16" (default), "16:9", "16/9", or a width/height number.
+  aspectRatio?: string;
   scenes: Scene[];
   timelineSections?: TimelineSection[];
 }

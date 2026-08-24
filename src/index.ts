@@ -13,3 +13,4 @@ export type {
   NarrativeState,
   TimelineSection,
 } from './core/types';
+export { parseAspectRatio, DEFAULT_ASPECT } from './core/aspect';
