@@ -236,9 +236,12 @@ export class DiveVideo extends LitElement {
     this.isFullscreen = !!document.fullscreenElement && document.fullscreenElement === this;
     
     if (this.isFullscreen) {
-      // Attempt mobile landscape lock
-      if (screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('landscape').catch(() => { /* ignore if not supported or not allowed */ });
+      // Attempt mobile landscape lock (not in the standard ScreenOrientation typings)
+      const orientation = screen.orientation as ScreenOrientation & {
+        lock?: (type: string) => Promise<void>;
+      };
+      if (orientation.lock) {
+        orientation.lock('landscape').catch(() => { /* ignore if not supported or not allowed */ });
       }
       this.resetUIHideTimer();
     } else {
