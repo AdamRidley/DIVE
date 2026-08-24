@@ -16,6 +16,58 @@ DIVE is a framework for creating "Interruptible Narrative Visualizations (INV)."
 
 For full technical details, see the [DIVE Framework Specification](DIVE-framework-spec.md).
 
+## Install
+
+```bash
+npm install dive-video
+```
+
+The package name is `dive-video` because `dive` is already taken on npm. Importing the module registers the `<dive-video>` custom element.
+
+```js
+import 'dive-video';
+```
+
+Or import the public API:
+
+```js
+import { registerTool } from 'dive-video';
+```
+
+## CDN
+
+After a version is published to npm, jsDelivr and unpkg serve it automatically:
+
+```html
+<script type="module" src="https://cdn.jsdelivr.net/npm/dive-video@1.0.0/dist/dive.js"></script>
+<dive-video src="./story.json"></dive-video>
+```
+
+Classic (non-module) script tag:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/dive-video@1.0.0/dist/dive.iife.js"></script>
+<dive-video src="./story.json"></dive-video>
+```
+
+The IIFE build exposes `window.DIVE` (`DiveVideo`, `registerTool`, `Sequencer`).
+
+## Local development
+
+```bash
+npm ci
+npm run dev
+```
+
+- PoC: http://localhost:5173/
+- Wealth and Health example: http://localhost:5173/examples/the_wealth_and_health_of_nations/
+
+```bash
+npm run test:ci          # typecheck + library build + dist smoke check
+npm run build            # ESM + IIFE + typings → dist/
+npm run build:example    # example site → dist-example/
+```
+
 ## CI/CD
 
 This repository now includes two GitHub Actions workflows:
@@ -28,8 +80,11 @@ This repository now includes two GitHub Actions workflows:
 
 - `.github/workflows/release.yml`
 - Runs on tags matching `v*.*.*` and on manual dispatch.
-- Builds and publishes release artifacts (`dist.tar.gz`, `dist-example.tar.gz`) to GitHub Releases.
+- Builds the library (`dist/dive.js`, `dist/dive.iife.js`) and publishes it to npm as `dive-video`.
+- Publishes release artifacts (`dist.tar.gz`, `dist-example.tar.gz`) to GitHub Releases.
 - Builds and pushes the example Docker image.
+
+npm publish needs a repository secret named `NPM_TOKEN` (npm Automation token with publish access). Without it, the GitHub Release and Docker image still publish; only the npm step fails.
 
 ### Release image registry settings
 

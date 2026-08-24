@@ -28,6 +28,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: npm ci
@@ -35,8 +36,11 @@ jobs:
       - name: Build framework bundle
         run: npm run build
 
+      - name: Check library dist
+        run: npm run check:dist
+
       - name: Build example bundle
-        run: npx vite build -c examples/the_wealth_and_health_of_nations/vite.config.example.mjs
+        run: npm run build:example
 
       - name: Package release artifacts
         run: |
@@ -49,6 +53,12 @@ jobs:
           files: |
             dist.tar.gz
             dist-example.tar.gz
+
+      - name: Publish to npm
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm publish --access public --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-image:
     runs-on: ubuntu-latest
