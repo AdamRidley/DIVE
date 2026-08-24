@@ -10,7 +10,8 @@ import { IframeAdapter } from '../adapters/IframeAdapter';
 import { aspectCss, parseAspectRatio } from '../core/aspect';
 import { AudioEngine, collectStoryAudio } from '../core/audio';
 import { cuesAtTime, resolveCaptionTracks, ResolvedCaptionTrack } from '../core/captions';
-import { filesForScene, filesNeededToStart, loadDivePack, looksLikeDiveUrl, openDivePackStream, shouldLoadAsDive, DivePackSession } from '../core/dive-pack';
+import { filesForScene, loadDivePack, looksLikeDiveUrl, openDivePack, shouldLoadAsDive, DivePackSession } from '../core/dive-pack';
+import { readDiveUrlState } from '../core/url-state';
 
 const toolRegistry: Record<string, new () => IAdapter> = {
   'map': D3MapAdapter,
@@ -329,23 +330,21 @@ export class DiveVideo extends LitElement {
 
   private async loadStory(url: string) {
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to load DIVE source: ${response.status}`);
-      }
-
       this.storyBaseUrl = new URL(url, window.location.href).href;
       this.packSession = null;
+      const urlState = readDiveUrlState();
 
       if (looksLikeDiveUrl(url)) {
         this.sceneReady = false;
-        const session = await openDivePackStream(response);
+        const session = await openDivePack(this.storyBaseUrl, { sceneId: urlState.sceneId });
         this.packSession = session;
-        await session.waitFor(['dive.json', 'story.json']);
-        await session.waitFor(filesNeededToStart(session.manifest));
         session.refreshStory();
         this.story = session.story;
       } else {
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`Failed to load DIVE source: ${response.status}`);
+        }
         const buffer = new Uint8Array(await response.arrayBuffer());
         if (shouldLoadAsDive(url, buffer)) {
           const pack = await loadDivePack(buffer);
@@ -394,7 +393,11 @@ export class DiveVideo extends LitElement {
       // Render and pause on the first frame so the canvas is not blank before Play.
       await this.updateComplete;
       this.lastVisualState = null;
-      this.sequencer.seek(0);
+      const startScene = urlState.sceneId
+        ? this.story?.scenes.find((scene) => scene.id === urlState.sceneId)
+        : undefined;
+      const startTime = urlState.timeMs ?? startScene?.startTime ?? 0;
+      this.sequencer.seek(startTime);
       this.notifyAdapterPlaybackState();
       
     } catch (e) {
@@ -414,6 +417,7 @@ export class DiveVideo extends LitElement {
         this.sequencer?.pause();
       }
       try {
+        await this.packSession.prioritizeScene(scene.id);
         await this.packSession.waitFor(needed);
       } finally {
         this.sceneReady = true;
