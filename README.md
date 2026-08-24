@@ -52,6 +52,8 @@ Classic (non-module) script tag:
 
 The IIFE build exposes `window.DIVE` (`DiveVideo`, `registerTool`, `Sequencer`).
 
+Story JSON can include `aspectRatio` (default `9:16`), `audio` (URL or clip objects), and `captions` (WebVTT URL or `{ startTime, endTime, text }` cues). If you only set the element's width, it sizes its height from the aspect ratio and letterboxes when the box is forced (explicit height or fullscreen).
+
 ## Local development
 
 ```bash
