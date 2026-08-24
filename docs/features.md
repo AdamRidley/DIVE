@@ -11,6 +11,8 @@ Status: **proposed** unless marked done. Sign off a round by ID (e.g. “do F3, 
 | F0c | Default **9:16**; story `aspectRatio` overrides (`16:9`, `16/9`, `4:3`, …) |
 | F0d | **Letterbox/pillarbox** inside an explicit box or fullscreen |
 | F0e | **Autosize** `<dive-video>` from width + aspect unless height is set or fullscreen |
+| F8/F9 | **`.dive` ordered ZIP**: `dive.json` + `story.json` + video-wide audio/captions + scenes. `npm run pack:dive`. Still unzip-compatible. |
+| F10 | JSON Schema + `npm run validate:story` |
 
 ## Proposed next rounds
 
@@ -30,9 +32,6 @@ Status: **proposed** unless marked done. Sign off a round by ID (e.g. “do F3, 
 |----|---------|-----|
 | F6 | **Preload / buffer scenes** ahead; pause + spinner if the current tool/data is not ready so time does not skip | Scene switches can flash or miss keyframes |
 | F7 | Prefetch next tool iframe/module + data during the previous scene | Makes F6 actually seamless |
-| F8 | **Story package**: zip or tar of `story.json` + tools + media | One URL to ship |
-| F9 | **Streamable ordered pack** (custom container or HTTP range / append-only chunks: scene 1 assets first) so playback can start before the whole pack arrives | Zip is random-access; start-up wants prefix-playable |
-| F10 | JSON Schema + `dive validate story.json` | Catch bad times / missing tools before publish |
 
 ### Narrative media
 
