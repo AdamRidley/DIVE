@@ -37,6 +37,8 @@ npm run build:wealth-health-data   # regenerate Gapminder JSON from raw CSVs
 - `src/core/Sequencer.ts` — rAF clock, scene lookup, keyframe snapshot (no interpolation yet)
 - `src/core/Adapter.ts` — `IAdapter` contract
 - `src/core/types.ts` — `Story` / `Scene` / `Keyframe` / `Overlay` types
+- `src/core/aspect.ts`, `src/core/audio.ts`, `src/core/captions.ts` — frame, soundtrack, VTT
+- `docs/features.md` — signed-off feature backlog
 - `src/adapters/` — built-in `map`, `scatterplot`, plus `IframeAdapter`
 - `public/` — PoC story + iframe/JS tool fixtures
 - `examples/the_wealth_and_health_of_nations/` — Gapminder demo (iframe tools, Docker)
@@ -53,7 +55,11 @@ npm run build:wealth-health-data   # regenerate Gapminder JSON from raw CSVs
 - Keyframe `time` is milliseconds from **scene start**, not story start.
 - `visualState.streamTime: true` makes the player call `setState` every tick.
 - `pauseOnInteract` may be set on the scene or on the current keyframe state.
-- Overlay placement is `placement: { anchor | mode: "absolute" }`. Legacy `position` is ignored.
+- Overlay placement is `placement: { anchor | mode: "absolute" }`. Legacy `position` is ignored. Audio overlays may omit `placement`.
+- Default frame is **9:16**. Set `aspectRatio` on the story (`16:9`, `16/9`, `4:3`) to override. Host autosizes from width unless an explicit height or `:fullscreen` is set (then letterbox).
+- `audio` is a URL, clip object, or array. Overlay `{ "type": "audio", "content": "/vo.mp3" }` is also a clip. Synced on play/pause/seek.
+- `captions` is a VTT URL, cue array, or track object(s). CC button toggles; cues also go to `aria-live`.
+- Feature backlog: `docs/features.md`.
 - Workshop-first for product behaviour. Packaging/CI changes that the user asked for are in-scope.
 
 ## Publishing / CDN
