@@ -8,6 +8,7 @@ import { D3MapAdapter } from '../adapters/D3MapAdapter';
 import { IframeAdapter } from '../adapters/IframeAdapter';
 
 import { aspectCss, parseAspectRatio } from '../core/aspect';
+import { AudioEngine, collectStoryAudio } from '../core/audio';
 
 const toolRegistry: Record<string, new () => IAdapter> = {
   'map': D3MapAdapter,
@@ -38,6 +39,7 @@ export class DiveVideo extends LitElement {
   @state() private activeToolId: string | null = null;
   @state() private isFullscreen = false;
   @state() private isUIHidden = false;
+  @state() private isMuted = false;
 
   @query('#canvas-container') private canvasContainer!: HTMLElement;
 
@@ -48,6 +50,8 @@ export class DiveVideo extends LitElement {
   private isScrubbing = false;
   private scrubberElement: HTMLElement | null = null;
   private hideUIHandle = 0;
+  private audioEngine = new AudioEngine();
+  private storyBaseUrl = '';
 
   static styles = css`
     :host {
@@ -130,6 +134,9 @@ export class DiveVideo extends LitElement {
       display: flex;
       align-items: center;
       justify-content: center;
+    }
+    .icon-btn[aria-pressed="true"] {
+      background: rgba(255, 255, 255, 0.16);
     }
     .icon-btn svg {
       width: 20px;
@@ -226,6 +233,7 @@ export class DiveVideo extends LitElement {
     this.removeEventListener('pointermove', this.resetUIHideTimer);
     this.removeEventListener('pointerdown', this.resetUIHideTimer);
     if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
+    this.audioEngine.dispose();
   }
 
   private toggleFullscreen = () => {
@@ -275,11 +283,14 @@ export class DiveVideo extends LitElement {
     try {
       const response = await fetch(url);
       this.story = await response.json();
+      this.storyBaseUrl = new URL(url, window.location.href).href;
       this.applyAspectRatio(this.story?.aspectRatio);
+      this.audioEngine.configure(this.story ? collectStoryAudio(this.story, this.storyBaseUrl) : []);
       
       this.sequencer = new Sequencer(this.story!, (state) => {
         this.currentTime = state.time;
         this.activeNarrativeState = state;
+        this.audioEngine.sync(state.time, this.isPlaying);
 
         if (state.scene) {
           this.activeScenePauseOnInteract = this.resolvePauseOnInteract(state.scene, state.visualState);
@@ -397,6 +408,7 @@ export class DiveVideo extends LitElement {
     if (this.activeAdapter?.setPlaybackState) {
       this.activeAdapter.setPlaybackState(this.isPlaying, this.currentTime);
     }
+    this.audioEngine.sync(this.currentTime, this.isPlaying);
   }
 
   private applyAspectRatio(value?: string) {
@@ -406,6 +418,11 @@ export class DiveVideo extends LitElement {
     this.style.setProperty('--ar-h', String(aspect.height));
   }
 
+  private toggleMute() {
+    this.isMuted = !this.isMuted;
+    this.audioEngine.setMuted(this.isMuted);
+  }
+
   private togglePlay() {
     if (!this.sequencer) return;
     
@@ -413,10 +430,8 @@ export class DiveVideo extends LitElement {
       this.sequencer.pause();
       this.isPlaying = false;
       this.notifyAdapterPlaybackState();
-      // In Explore Mode -> Let user interact freely
-      // The canvas container pointer-events could be toggled here.
     } else {
-      // Snapback will happen naturally because we reset the lastVisualState
+      this.audioEngine.unlock();
       this.lastVisualState = null;
       this.sequencer.play();
       this.isPlaying = true;
@@ -640,6 +655,9 @@ export class DiveVideo extends LitElement {
     const timelineSections = this.getTimelineSections();
     const activeSceneData = this.story.scenes.find((scene) => scene.id === this.activeToolId)?.data;
     const visibleOverlays = (this.activeNarrativeState?.activeOverlays || []).filter((overlay) => {
+      if (overlay.type === 'audio') {
+        return false;
+      }
       if (!this.isPlaying && overlay.hideWhenPaused) {
         return false;
       }
@@ -647,6 +665,7 @@ export class DiveVideo extends LitElement {
     });
 
     const aspect = parseAspectRatio(this.story.aspectRatio);
+    const hasAudio = this.audioEngine.hasAudio;
 
     return html`
       <div class="video-section">
@@ -660,7 +679,7 @@ export class DiveVideo extends LitElement {
           <div class="overlays">
             ${visibleOverlays.map(o => html`
               <div class="overlay-item" style=${this.getOverlayPlacementStyle(o)}>
-                ${o.type === 'text' ? html`<p>${o.content}</p>` : html`<img src="${o.content}" width="100%" />`}
+                ${o.type === 'image' ? html`<img src="${o.content}" width="100%" />` : html`<p>${o.content}</p>`}
               </div>
             `)}
           </div>
@@ -702,6 +721,22 @@ export class DiveVideo extends LitElement {
         <div class="time-display">
           ${this.formatTime(this.currentTime)} / ${this.formatTime(duration)}
         </div>
+
+        ${hasAudio ? html`
+          <button
+            class="icon-btn"
+            @click=${this.toggleMute}
+            title="${this.isMuted ? 'Unmute' : 'Mute'}"
+            aria-label="${this.isMuted ? 'Unmute' : 'Mute'}"
+            aria-pressed=${this.isMuted}
+          >
+            <svg viewBox="0 0 24 24">
+              ${this.isMuted
+                ? html`<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"/>`
+                : html`<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>`}
+            </svg>
+          </button>
+        ` : ''}
 
         <button class="icon-btn" @click=${this.toggleFullscreen} title="Toggle Fullscreen" aria-label="Toggle Fullscreen">
           <svg viewBox="0 0 24 24">

@@ -12,5 +12,7 @@ export type {
   OverlayAbsolutePlacement,
   NarrativeState,
   TimelineSection,
+  AudioClip,
+  StoryAudio,
 } from './core/types';
 export { parseAspectRatio, DEFAULT_ASPECT } from './core/aspect';
