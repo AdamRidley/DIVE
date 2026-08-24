@@ -10,6 +10,7 @@ import { IframeAdapter } from '../adapters/IframeAdapter';
 import { aspectCss, parseAspectRatio } from '../core/aspect';
 import { AudioEngine, collectStoryAudio } from '../core/audio';
 import { cuesAtTime, resolveCaptionTracks, ResolvedCaptionTrack } from '../core/captions';
+import { filesForScene, filesNeededToStart, loadDivePack, looksLikeDiveUrl, openDivePackStream, shouldLoadAsDive, DivePackSession } from '../core/dive-pack';
 
 const toolRegistry: Record<string, new () => IAdapter> = {
   'map': D3MapAdapter,
@@ -56,6 +57,8 @@ export class DiveVideo extends LitElement {
   private audioEngine = new AudioEngine();
   private captionTracks: ResolvedCaptionTrack[] = [];
   private storyBaseUrl = '';
+  private packSession: DivePackSession | null = null;
+  @state() private sceneReady = true;
 
   static styles = css`
     :host {
@@ -132,6 +135,27 @@ export class DiveVideo extends LitElement {
       line-height: 1.35;
       max-width: 100%;
       white-space: pre-line;
+    }
+    .buffer-spinner {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: rgba(0, 0, 0, 0.35);
+      z-index: 6;
+      pointer-events: none;
+    }
+    .buffer-spinner::after {
+      content: '';
+      width: 36px;
+      height: 36px;
+      border: 3px solid rgba(255, 255, 255, 0.25);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: dive-spin 0.8s linear infinite;
+    }
+    @keyframes dive-spin {
+      to { transform: rotate(360deg); }
     }
 
     .controls {
@@ -306,14 +330,38 @@ export class DiveVideo extends LitElement {
   private async loadStory(url: string) {
     try {
       const response = await fetch(url);
-      this.story = await response.json();
+      if (!response.ok) {
+        throw new Error(`Failed to load DIVE source: ${response.status}`);
+      }
+
       this.storyBaseUrl = new URL(url, window.location.href).href;
+      this.packSession = null;
+
+      if (looksLikeDiveUrl(url)) {
+        this.sceneReady = false;
+        const session = await openDivePackStream(response);
+        this.packSession = session;
+        await session.waitFor(['dive.json', 'story.json']);
+        await session.waitFor(filesNeededToStart(session.manifest));
+        session.refreshStory();
+        this.story = session.story;
+      } else {
+        const buffer = new Uint8Array(await response.arrayBuffer());
+        if (shouldLoadAsDive(url, buffer)) {
+          const pack = await loadDivePack(buffer);
+          this.story = pack.story;
+        } else {
+          this.story = JSON.parse(new TextDecoder().decode(buffer));
+        }
+      }
+
       this.applyAspectRatio(this.story?.aspectRatio);
       this.audioEngine.configure(this.story ? collectStoryAudio(this.story, this.storyBaseUrl) : []);
       this.captionTracks = this.story
         ? await resolveCaptionTracks(this.story.captions, this.storyBaseUrl)
         : [];
       this.captionsEnabled = this.captionTracks.length > 0;
+      this.sceneReady = true;
       
       this.sequencer = new Sequencer(this.story!, (state) => {
         this.currentTime = state.time;
@@ -354,7 +402,45 @@ export class DiveVideo extends LitElement {
     }
   }
 
+  private async ensureScenePacked(scene: Story['scenes'][0]): Promise<Story['scenes'][0]> {
+    if (!this.packSession) {
+      return scene;
+    }
+    const needed = filesForScene(this.packSession.manifest, scene.id);
+    if (needed.length && !this.packSession.hasAll(needed)) {
+      const resume = this.isPlaying;
+      this.sceneReady = false;
+      if (resume) {
+        this.sequencer?.pause();
+      }
+      try {
+        await this.packSession.waitFor(needed);
+      } finally {
+        this.sceneReady = true;
+        if (resume) {
+          this.sequencer?.play();
+        }
+      }
+    }
+    this.packSession.refreshStory();
+    this.story = this.packSession.story;
+    return this.story?.scenes.find((item) => item.id === scene.id) || scene;
+  }
+
+  private packedNameForUrl(url: string): string | null {
+    if (!this.packSession) {
+      return null;
+    }
+    for (const [name, mapped] of this.packSession.urls) {
+      if (mapped === url) {
+        return name;
+      }
+    }
+    return null;
+  }
+
   private async switchTool(scene: Story['scenes'][0]) {
+    scene = await this.ensureScenePacked(scene);
     // Unmount previous
     if (this.activeAdapter) {
       this.activeAdapter.unmount();
@@ -364,15 +450,15 @@ export class DiveVideo extends LitElement {
     this.activeScenePauseOnInteract = this.resolvePauseOnInteract(scene, null);
 
     const tool = scene.tool;
+    const packedName = this.packedNameForUrl(tool);
 
     // Load new adapter
     if (toolRegistry[tool]) {
       const AdapterClass = toolRegistry[tool];
       this.activeAdapter = new AdapterClass();
-    } else if (tool.endsWith('.js')) {
+    } else if (tool.endsWith('.js') || packedName?.endsWith('.js')) {
       try {
-        // Construct an absolute URL to bypass Vite's public directory import restrictions during dev
-        const moduleUrl = new URL(tool, window.location.origin).href;
+        const moduleUrl = tool.startsWith('blob:') ? tool : new URL(tool, window.location.origin).href;
         const module = await import(/* @vite-ignore */ moduleUrl);
         // Look for the exported class, either default or first exported value
         const AdapterClass = module.default || Object.values(module)[0];
@@ -384,7 +470,14 @@ export class DiveVideo extends LitElement {
       } catch (err) {
         console.error(`Failed to dynamically import tool: ${tool}`, err);
       }
-    } else if (tool.endsWith('.html') || tool.startsWith('http://') || tool.startsWith('https://')) {
+    } else if (
+      tool.endsWith('.html')
+      || packedName?.endsWith('.html')
+      || packedName?.endsWith('.htm')
+      || tool.startsWith('http://')
+      || tool.startsWith('https://')
+      || tool.startsWith('blob:')
+    ) {
       this.activeAdapter = new IframeAdapter(tool);
     } else {
       console.warn(`No adapter registered for tool: ${tool}`);
@@ -716,6 +809,7 @@ export class DiveVideo extends LitElement {
           style="--aspect-ratio: ${aspectCss(aspect)}; --ar-w: ${aspect.width}; --ar-h: ${aspect.height};"
         >
           <div id="canvas-container"></div>
+          ${this.sceneReady ? '' : html`<div class="buffer-spinner" part="buffer" aria-label="Loading scene"></div>`}
           
           <!-- Overlay Layer -->
           <div class="overlays">
