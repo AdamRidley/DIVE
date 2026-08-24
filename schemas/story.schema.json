@@ -1,0 +1,270 @@
+{
+  "$id": "https://dive.video/story.schema.json",
+  "title": "DIVE Story",
+  "description": "JSON Schema for DIVE interactive narrative visualization stories",
+  "type": "object",
+  "properties": {
+    "title": {
+      "description": "Story title. Can be a string or multilingual object (lang code -> title)",
+      "anyOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      ]
+    },
+    "duration": {
+      "description": "Total duration in milliseconds",
+      "type": "number",
+      "minimum": 0
+    },
+    "aspectRatio": {
+      "description": "Aspect ratio like '9:16', '16:9', or numeric ratio",
+      "type": "string"
+    },
+    "audio": {
+      "description": "Background audio - URL, AudioClip, or array of clips",
+      "anyOf": [
+        { "type": "string" },
+        { "$ref": "#/$defs/audioClip" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/audioClip" }
+        }
+      ]
+    },
+    "captions": {
+      "description": "Captions - URL, cue array, track, or array of tracks",
+      "anyOf": [
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              { "$ref": "#/$defs/captionCue" },
+              { "$ref": "#/$defs/captionTrack" }
+            ]
+          }
+        },
+        { "$ref": "#/$defs/captionTrack" }
+      ]
+    },
+    "languages": {
+      "description": "Supported languages",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "label": { "type": "string" },
+          "default": { "type": "boolean" }
+        },
+        "required": ["code", "label"],
+        "additionalProperties": true
+      }
+    },
+    "poster": {
+      "description": "Poster image URL",
+      "type": "string"
+    },
+    "assets": {
+      "description": "Asset definitions",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "src": { "type": "string" },
+          "lang": { "type": "string" },
+          "role": { "type": "string" }
+        },
+        "required": ["id", "src"],
+        "additionalProperties": true
+      }
+    },
+    "dependencies": {
+      "description": "Dependencies (can also appear at scene level)",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "timelineSections": {
+      "description": "Timeline chapter/segment definitions",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "startTime": { "type": "number", "minimum": 0 },
+          "endTime": { "type": "number", "minimum": 0 },
+          "label": { "type": "string" },
+          "description": { "type": "string" },
+          "color": { "type": "string" }
+        },
+        "required": ["startTime", "endTime", "label"],
+        "additionalProperties": true
+      }
+    },
+    "scenes": {
+      "description": "Main story scenes",
+      "type": "array",
+      "items": { "$ref": "#/$defs/scene" }
+    }
+  },
+  "required": ["title", "duration", "scenes"],
+  "$defs": {
+    "audioClip": {
+      "type": "object",
+      "properties": {
+        "src": { "type": "string" },
+        "startTime": { "type": "number", "minimum": 0 },
+        "endTime": { "type": "number", "minimum": 0 },
+        "offset": { "type": "number" },
+        "volume": { "type": "number", "minimum": 0, "maximum": 1 },
+        "loop": { "type": "boolean" },
+        "lang": { "type": "string" },
+        "role": {
+          "type": "string",
+          "enum": ["narration", "music", "sfx", "descriptions"]
+        }
+      },
+      "required": ["src"],
+      "additionalProperties": true
+    },
+    "captionCue": {
+      "type": "object",
+      "properties": {
+        "startTime": { "type": "number", "minimum": 0 },
+        "endTime": { "type": "number", "minimum": 0 },
+        "text": { "type": "string" }
+      },
+      "required": ["startTime", "endTime", "text"],
+      "additionalProperties": true
+    },
+    "captionTrack": {
+      "type": "object",
+      "properties": {
+        "src": { "type": "string" },
+        "cues": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/captionCue" }
+        },
+        "srclang": { "type": "string" },
+        "label": { "type": "string" },
+        "default": { "type": "boolean" },
+        "kind": {
+          "type": "string",
+          "enum": ["subtitles", "captions"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "scene": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tool": { "type": "string" },
+        "startTime": { "type": "number", "minimum": 0 },
+        "endTime": { "type": "number", "minimum": 0 },
+        "data": {
+          "anyOf": [
+            { "type": "string" },
+            { "type": "object" },
+            { "type": "array" }
+          ]
+        },
+        "sendData": { "type": "boolean" },
+        "pauseOnInteract": { "type": "boolean" },
+        "dependencies": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "keyframes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "time": { "type": "number", "minimum": 0 },
+              "state": { "type": "object" },
+              "duration": { "type": "number", "minimum": 0 }
+            },
+            "required": ["time", "state"],
+            "additionalProperties": true
+          }
+        },
+        "overlays": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/overlay" }
+        }
+      },
+      "required": ["id", "tool", "startTime", "endTime", "keyframes", "overlays"],
+      "additionalProperties": true
+    },
+    "overlay": {
+      "type": "object",
+      "properties": {
+        "time": { "type": "number", "minimum": 0 },
+        "duration": { "type": "number", "minimum": 0 },
+        "type": {
+          "type": "string",
+          "enum": ["text", "image", "audio"]
+        },
+        "content": {
+          "anyOf": [
+            { "type": "string" },
+            {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            }
+          ]
+        },
+        "placement": {
+          "anyOf": [
+            { "$ref": "#/$defs/overlayPlacement" },
+            { "type": "string" }
+          ]
+        },
+        "hideWhenPaused": { "type": "boolean" },
+        "volume": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "required": ["time", "duration", "type", "content"],
+      "additionalProperties": true
+    },
+    "overlayPlacement": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "mode": { "const": "anchor" },
+            "anchor": { "type": "string" },
+            "offset": {
+              "anyOf": [{ "type": "number" }, { "type": "string" }]
+            },
+            "offsetUnit": { "enum": ["px", "%"] },
+            "offsetX": {
+              "anyOf": [{ "type": "number" }, { "type": "string" }]
+            },
+            "offsetY": {
+              "anyOf": [{ "type": "number" }, { "type": "string" }]
+            },
+            "offsetXUnit": { "enum": ["px", "%"] },
+            "offsetYUnit": { "enum": ["px", "%"] }
+          },
+          "required": ["anchor"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "mode": { "const": "absolute" },
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "xUnit": { "enum": ["px", "%"] },
+            "yUnit": { "enum": ["px", "%"] }
+          },
+          "required": ["mode", "x", "y"]
+        }
+      ]
+    }
+  },
+  "additionalProperties": true
+}
