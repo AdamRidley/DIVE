@@ -7,6 +7,8 @@ import { D3ScatterplotAdapter } from '../adapters/D3ScatterplotAdapter';
 import { D3MapAdapter } from '../adapters/D3MapAdapter';
 import { IframeAdapter } from '../adapters/IframeAdapter';
 
+import { aspectCss, parseAspectRatio } from '../core/aspect';
+
 const toolRegistry: Record<string, new () => IAdapter> = {
   'map': D3MapAdapter,
   'scatterplot': D3ScatterplotAdapter,
@@ -52,30 +54,33 @@ export class DiveVideo extends LitElement {
       display: block;
       position: relative;
       width: 100%;
-      height: 100%;
+      max-width: 100%;
+      height: auto;
+      aspect-ratio: var(--aspect-ratio, 9 / 16);
       background: #000;
       overflow: hidden;
       font-family: sans-serif;
     }
+    :host(:fullscreen) {
+      width: 100%;
+      height: 100%;
+      aspect-ratio: auto;
+    }
     .video-section {
       position: absolute;
-      top: 0; left: 0; right: 0;
-      bottom: 60px;
-      display: flex;
-      justify-content: center;
-      align-items: center;
+      inset: 0;
+      display: grid;
+      place-items: center;
       background: #000;
-      transition: bottom 0.3s ease-in-out;
-    }
-    .video-section.fullscreen {
-      bottom: 0;
+      container-type: size;
+      container-name: stage;
     }
     .video-ratio-wrapper {
-      width: 100vw;
-      max-width: 100%;
-      max-height: 100%;
-      aspect-ratio: var(--aspect-ratio, 16/9);
       position: relative;
+      overflow: hidden;
+      aspect-ratio: var(--aspect-ratio, 9 / 16);
+      width: min(100cqw, calc(100cqh * var(--ar-w, 9) / var(--ar-h, 16)));
+      height: min(100cqh, calc(100cqw * var(--ar-h, 16) / var(--ar-w, 9)));
     }
     #canvas-container {
       width: 100%;
@@ -104,11 +109,11 @@ export class DiveVideo extends LitElement {
     .controls {
       position: absolute;
       bottom: 0; left: 0; right: 0;
-      height: 60px;
-      background: #222;
+      min-height: 60px;
+      background: linear-gradient(transparent, rgba(0, 0, 0, 0.82));
       display: flex;
       align-items: center;
-      padding: 0 10px;
+      padding: 10px 10px 8px;
       box-sizing: border-box;
       color: white;
       transition: transform 0.3s ease-in-out;
@@ -117,16 +122,16 @@ export class DiveVideo extends LitElement {
     .controls.hidden {
       transform: translateY(100%);
     }
-    .fullscreen-btn {
+    .icon-btn {
       background: transparent;
       padding: 6px;
-      margin-left: 10px;
+      margin-left: 8px;
       margin-right: 0;
       display: flex;
       align-items: center;
       justify-content: center;
     }
-    .fullscreen-btn svg {
+    .icon-btn svg {
       width: 20px;
       height: 20px;
       fill: white;
@@ -205,6 +210,7 @@ export class DiveVideo extends LitElement {
     document.addEventListener('fullscreenchange', this.handleFullscreenChange);
     this.addEventListener('pointermove', this.resetUIHideTimer);
     this.addEventListener('pointerdown', this.resetUIHideTimer);
+    this.applyAspectRatio();
   }
 
   protected async firstUpdated() {
@@ -269,6 +275,7 @@ export class DiveVideo extends LitElement {
     try {
       const response = await fetch(url);
       this.story = await response.json();
+      this.applyAspectRatio(this.story?.aspectRatio);
       
       this.sequencer = new Sequencer(this.story!, (state) => {
         this.currentTime = state.time;
@@ -390,6 +397,13 @@ export class DiveVideo extends LitElement {
     if (this.activeAdapter?.setPlaybackState) {
       this.activeAdapter.setPlaybackState(this.isPlaying, this.currentTime);
     }
+  }
+
+  private applyAspectRatio(value?: string) {
+    const aspect = parseAspectRatio(value);
+    this.style.setProperty('--aspect-ratio', aspectCss(aspect));
+    this.style.setProperty('--ar-w', String(aspect.width));
+    this.style.setProperty('--ar-h', String(aspect.height));
   }
 
   private togglePlay() {
@@ -632,12 +646,14 @@ export class DiveVideo extends LitElement {
       return true;
     });
 
-    const aspectRatioRaw = this.story?.aspectRatio || '16:9';
-    const aspectRatioCSS = aspectRatioRaw.replace(':', '/');
+    const aspect = parseAspectRatio(this.story.aspectRatio);
 
     return html`
-      <div class="video-section ${this.isFullscreen ? 'fullscreen' : ''}">
-        <div class="video-ratio-wrapper" style="--aspect-ratio: ${aspectRatioCSS}">
+      <div class="video-section">
+        <div
+          class="video-ratio-wrapper"
+          style="--aspect-ratio: ${aspectCss(aspect)}; --ar-w: ${aspect.width}; --ar-h: ${aspect.height};"
+        >
           <div id="canvas-container"></div>
           
           <!-- Overlay Layer -->
@@ -687,7 +703,7 @@ export class DiveVideo extends LitElement {
           ${this.formatTime(this.currentTime)} / ${this.formatTime(duration)}
         </div>
 
-        <button class="fullscreen-btn" @click=${this.toggleFullscreen} title="Toggle Fullscreen" aria-label="Toggle Fullscreen">
+        <button class="icon-btn" @click=${this.toggleFullscreen} title="Toggle Fullscreen" aria-label="Toggle Fullscreen">
           <svg viewBox="0 0 24 24">
             ${this.isFullscreen 
               ? html`<path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>` 
