@@ -5,9 +5,21 @@ export interface Story {
   duration: number; // total duration in milliseconds
   // "9:16" (default), "16:9", "16/9", or a width/height number.
   aspectRatio?: string;
+  audio?: StoryAudio;
   scenes: Scene[];
   timelineSections?: TimelineSection[];
 }
+
+export interface AudioClip {
+  src: string;
+  startTime?: number; // story time ms when this clip becomes active
+  endTime?: number;
+  offset?: number; // ms into the media file at startTime
+  volume?: number; // 0–1
+  loop?: boolean;
+}
+
+export type StoryAudio = string | AudioClip | AudioClip[];
 
 export interface TimelineSection {
   id?: string;
@@ -84,10 +96,11 @@ export type OverlayPlacement = OverlayAnchorPlacement | OverlayAbsolutePlacement
 export interface Overlay {
   time: number; 
   duration: number;
-  type: "text" | "image";
-  content: string; // The HTML or URL
-  placement: OverlayPlacement;
+  type: "text" | "image" | "audio";
+  content: string; // text, image URL, or audio URL
+  placement?: OverlayPlacement;
   hideWhenPaused?: boolean;
+  volume?: number; // audio overlays only
 }
 
 export interface NarrativeState {
