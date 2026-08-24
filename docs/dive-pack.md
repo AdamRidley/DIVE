@@ -30,7 +30,7 @@ Missing local files are skipped with a warning. Remote CDN imports (e.g. D3 on j
 <dive-video src="./story.dive"></dive-video>
 ```
 
-The player detects ZIP magic or a `.dive` URL, walks **local file headers from the front**, and rewrites relative story refs to blob URLs. Folder `story.json` still works.
+The player streams `fetch().body` and walks **local file headers from the front**. Playback can start as soon as `dive.json`, `story.json`, video-wide media, and the first scene’s files have arrived. Later scenes keep downloading; if you seek into one that is not here yet, the clock holds and a spinner shows.
 
 HTML tools get a small fetch/`URL` shim so relative loads like `../data/foo.json` resolve inside the pack. External absolute URLs are unchanged.
 

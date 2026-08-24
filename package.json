@@ -31,7 +31,7 @@
     "check:dist": "node scripts/check-dist.mjs",
     "validate:story": "node scripts/validate-story.mjs",
     "pack:dive": "node scripts/pack-dive.mjs",
-    "test:ci": "npm run typecheck && npm run validate:story && npm run build && npm run check:dist",
+    "test:ci": "npm run typecheck && npm run validate:story && npm run build && npm run check:dist && node scripts/test-dive-stream.mjs",
     "prepublishOnly": "npm run test:ci",
     "build:wealth-health-data": "node examples/the_wealth_and_health_of_nations/scripts/build-gapminder-data.mjs"
   },

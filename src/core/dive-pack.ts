@@ -1,6 +1,8 @@
 import { DIVE_MANIFEST_NAME, DIVE_STORY_NAME, DiveManifest } from './dive-manifest';
-import { isZipBuffer, readZipEntries } from './zip-read';
+import { ZipEntry, ZipStreamParser, isZipBuffer, looksLikeDiveUrl, readZipEntries } from './zip-read';
 import { Story } from './types';
+export { looksLikeDiveUrl } from './zip-read';
+export { DIVE_MANIFEST_NAME, DIVE_STORY_NAME } from './dive-manifest';
 
 export interface DivePack {
   manifest: DiveManifest | null;
@@ -210,6 +212,139 @@ export async function loadDivePack(buffer: Uint8Array): Promise<DivePack> {
   return pack;
 }
 
-export function shouldLoadAsDive(url: string, buffer: Uint8Array): boolean {
-  return /\.dive(?:$|[?#])/i.test(url) || isZipBuffer(buffer);
+export function shouldLoadAsDive(url: string, buffer?: Uint8Array): boolean {
+  return looksLikeDiveUrl(url) || Boolean(buffer && isZipBuffer(buffer));
+}
+
+export function filesNeededToStart(manifest: DiveManifest | null): string[] {
+  const names = [DIVE_STORY_NAME];
+  if (!manifest) {
+    return names;
+  }
+  names.unshift(DIVE_MANIFEST_NAME);
+  names.push(...manifest.shared);
+  const first = manifest.scenes.find((scene) => scene.files.length > 0) || manifest.scenes[0];
+  if (first) {
+    names.push(...first.files);
+  }
+  return [...new Set(names)];
+}
+
+export function filesForScene(manifest: DiveManifest | null, sceneId: string): string[] {
+  if (!manifest) {
+    return [];
+  }
+  const scene = manifest.scenes.find((item) => item.id === sceneId);
+  return scene ? [...scene.files] : [];
+}
+
+export class DivePackSession implements DivePack {
+  manifest: DiveManifest | null = null;
+  story: Story = { title: '', duration: 0, scenes: [] };
+  files = new Map<string, Uint8Array>();
+  urls = new Map<string, string>();
+  private rawStory: Story | null = null;
+  private waiters: Array<{ names: string[]; resolve: () => void }> = [];
+  finished = false;
+
+  addEntry(entry: ZipEntry): void {
+    this.files.set(entry.name, entry.data);
+    blobUrlFor(this, entry.name);
+    if (entry.name === DIVE_MANIFEST_NAME) {
+      this.manifest = JSON.parse(decodeText(entry.data)) as DiveManifest;
+    }
+    if (entry.name === DIVE_STORY_NAME) {
+      this.rawStory = JSON.parse(decodeText(entry.data)) as Story;
+      this.refreshStory();
+    } else if (this.rawStory) {
+      this.refreshStory();
+    }
+    this.flushWaiters();
+  }
+
+  refreshStory(): void {
+    if (!this.rawStory) {
+      return;
+    }
+    this.story = rewriteStoryForPack(this.rawStory, this);
+  }
+
+  hasAll(names: string[]): boolean {
+    return names.every((name) => this.files.has(name));
+  }
+
+  waitFor(names: string[]): Promise<void> {
+    const needed = [...new Set(names.filter(Boolean))];
+    if (this.hasAll(needed)) {
+      return Promise.resolve();
+    }
+    if (this.finished && !this.hasAll(needed)) {
+      return Promise.reject(new Error(`Pack finished without: ${needed.filter((name) => !this.files.has(name)).join(', ')}`));
+    }
+    return new Promise((resolve) => {
+      this.waiters.push({ names: needed, resolve });
+    });
+  }
+
+  markFinished(): void {
+    this.finished = true;
+    this.flushWaiters();
+  }
+
+  private flushWaiters(): void {
+    this.waiters = this.waiters.filter((waiter) => {
+      if (this.hasAll(waiter.names)) {
+        waiter.resolve();
+        return false;
+      }
+      return true;
+    });
+  }
+}
+
+export async function openDivePackStream(response: Response, onEntry?: (name: string) => void): Promise<DivePackSession> {
+  const session = new DivePackSession();
+  const parser = new ZipStreamParser();
+  const reader = response.body?.getReader();
+
+  const consume = async (chunk: Uint8Array) => {
+    for (const entry of await parser.push(chunk)) {
+      session.addEntry(entry);
+      onEntry?.(entry.name);
+    }
+  };
+
+  if (!reader) {
+    const buffer = new Uint8Array(await response.arrayBuffer());
+    await consume(buffer);
+    for (const entry of await parser.end()) {
+      session.addEntry(entry);
+      onEntry?.(entry.name);
+    }
+    session.markFinished();
+    return session;
+  }
+
+  const pump = (async () => {
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        if (value) {
+          await consume(value);
+        }
+      }
+      for (const entry of await parser.end()) {
+        session.addEntry(entry);
+        onEntry?.(entry.name);
+      }
+    } finally {
+      session.markFinished();
+    }
+  })();
+
+  void pump;
+  return session;
 }
