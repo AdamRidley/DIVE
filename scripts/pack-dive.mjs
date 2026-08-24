@@ -10,6 +10,7 @@ const LOCAL_SIG = 0x04034b50;
 const CENTRAL_SIG = 0x02014b50;
 const EOCD_SIG = 0x06054b50;
 const DEFLATE = 8;
+const STORE = 0;
 
 function dosDateTime(date = new Date()) {
   const dosTime = (date.getSeconds() / 2) | (date.getMinutes() << 5) | (date.getHours() << 11);
@@ -320,66 +321,76 @@ async function main() {
     || 'en';
 
   const stamp = dosDateTime();
-  const built = [];
-  let cursor = 0;
+  const headerSize = (name) => 30 + Buffer.byteLength(name, 'utf8');
 
-  const manifestStub = {
-    version: 1,
-    story: 'story.json',
-    defaultLanguage,
-    languages: languages.length ? languages : [defaultLanguage],
-    shared: planned.filter((item) => item.bucket === 'shared').map((item) => item.packName),
-    scenes: sceneIds.map((id) => ({
-      id,
-      files: planned.filter((item) => item.bucket === id).map((item) => item.packName),
-      offset: 0,
-      length: 0,
-    })),
+  const padManifest = (manifest, size) => {
+    const text = `${JSON.stringify(manifest, null, 2)}\n`;
+    const bytes = Buffer.byteLength(text);
+    if (bytes > size) {
+      return null;
+    }
+    return Buffer.from(text + ' '.repeat(size - bytes), 'utf8');
   };
 
-  const manifestRaw = Buffer.from(`${JSON.stringify(manifestStub, null, 2)}\n`, 'utf8');
-  const manifestComp = zlib.deflateRawSync(manifestRaw);
+  let diveJsonSize = 4096;
+  let built = [];
+  let manifest = null;
+  let manifestRaw = null;
+
+  while (diveJsonSize <= 64 * 1024) {
+    built = [];
+    let cursor = headerSize('dive.json') + diveJsonSize;
+    for (const item of planned) {
+      item.offset = cursor;
+      cursor += headerSize(item.packName) + item.comp.length;
+      built.push(item);
+    }
+
+    const sceneMeta = sceneIds.map((id) => {
+      const files = built.filter((item) => item.bucket === id);
+      if (files.length === 0) {
+        return { id, files: [], offset: 0, length: 0 };
+      }
+      const start = files[0].offset;
+      const last = files[files.length - 1];
+      const end = last.offset + headerSize(last.packName) + last.comp.length;
+      return {
+        id,
+        files: files.map((item) => item.packName),
+        offset: start,
+        length: end - start,
+      };
+    });
+
+    const firstScene = sceneMeta.find((scene) => scene.length > 0);
+    manifest = {
+      version: 1,
+      story: 'story.json',
+      defaultLanguage,
+      languages: languages.length ? languages : [defaultLanguage],
+      shared: built.filter((item) => item.bucket === 'shared').map((item) => item.packName),
+      prefixEnd: firstScene ? firstScene.offset : cursor,
+      scenes: sceneMeta,
+    };
+    manifestRaw = padManifest(manifest, diveJsonSize);
+    if (manifestRaw) {
+      break;
+    }
+    diveJsonSize *= 2;
+  }
+
+  if (!manifestRaw || !manifest) {
+    throw new Error('dive.json is too large to pad into a stable prefix');
+  }
+
   const manifestEntry = {
     packName: 'dive.json',
     raw: manifestRaw,
-    comp: manifestComp,
+    comp: manifestRaw,
     crc: crc32(manifestRaw),
+    method: STORE,
     offset: 0,
   };
-
-  const headerSize = (name) => 30 + Buffer.byteLength(name, 'utf8');
-  cursor = headerSize('dive.json') + manifestComp.length;
-
-  for (const item of planned) {
-    item.offset = cursor;
-    cursor += headerSize(item.packName) + item.comp.length;
-    built.push(item);
-  }
-
-  const sceneMeta = sceneIds.map((id) => {
-    const files = built.filter((item) => item.bucket === id);
-    if (files.length === 0) {
-      return { id, files: [], offset: 0, length: 0 };
-    }
-    const start = files[0].offset;
-    const last = files[files.length - 1];
-    const end = last.offset + headerSize(last.packName) + last.comp.length;
-    return {
-      id,
-      files: files.map((item) => item.packName),
-      offset: start,
-      length: end - start,
-    };
-  });
-
-  const manifest = {
-    ...manifestStub,
-    shared: built.filter((item) => item.bucket === 'shared').map((item) => item.packName),
-    scenes: sceneMeta,
-  };
-  manifestEntry.raw = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  manifestEntry.comp = zlib.deflateRawSync(manifestEntry.raw);
-  manifestEntry.crc = crc32(manifestEntry.raw);
 
   const out = outPath
     ? resolve(process.cwd(), outPath)
@@ -389,16 +400,16 @@ async function main() {
   const chunks = [];
   const centrals = [];
   let offset = 0;
-  const writeEntry = (name, raw, comp, crc) => {
+  const writeEntry = (name, raw, comp, crc, method = DEFLATE) => {
     const nameBuf = Buffer.from(name, 'utf8');
-    const local = localHeader(nameBuf, stamp, crc, comp, raw, DEFLATE);
-    const central = centralHeader(nameBuf, stamp, crc, comp, raw, DEFLATE, offset);
+    const local = localHeader(nameBuf, stamp, crc, comp, raw, method);
+    const central = centralHeader(nameBuf, stamp, crc, comp, raw, method, offset);
     chunks.push(local);
     centrals.push(central);
     offset += local.length;
   };
 
-  writeEntry('dive.json', manifestEntry.raw, manifestEntry.comp, manifestEntry.crc);
+  writeEntry('dive.json', manifestEntry.raw, manifestEntry.comp, manifestEntry.crc, STORE);
   for (const item of built) {
     writeEntry(item.packName, item.raw, item.comp, item.crc);
   }

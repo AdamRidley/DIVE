@@ -7,6 +7,7 @@ export interface Story {
   aspectRatio?: string;
   audio?: StoryAudio;
   captions?: StoryCaptions;
+  poster?: string;
   scenes: Scene[];
   timelineSections?: TimelineSection[];
 }

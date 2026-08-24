@@ -1,4 +1,4 @@
-import { DIVE_MANIFEST_NAME, DIVE_STORY_NAME, DiveManifest } from './dive-manifest';
+import { DIVE_MANIFEST_NAME, DIVE_STORY_NAME, DiveByteRange, DiveManifest } from './dive-manifest';
 import { ZipEntry, ZipStreamParser, isZipBuffer, looksLikeDiveUrl, readZipEntries } from './zip-read';
 import { Story } from './types';
 export { looksLikeDiveUrl } from './zip-read';
@@ -216,18 +216,38 @@ export function shouldLoadAsDive(url: string, buffer?: Uint8Array): boolean {
   return looksLikeDiveUrl(url) || Boolean(buffer && isZipBuffer(buffer));
 }
 
-export function filesNeededToStart(manifest: DiveManifest | null): string[] {
+export function filesNeededToStart(manifest: DiveManifest | null, sceneId?: string): string[] {
   const names = [DIVE_STORY_NAME];
   if (!manifest) {
     return names;
   }
   names.unshift(DIVE_MANIFEST_NAME);
   names.push(...manifest.shared);
-  const first = manifest.scenes.find((scene) => scene.files.length > 0) || manifest.scenes[0];
-  if (first) {
-    names.push(...first.files);
+  const target = (sceneId && manifest.scenes.find((scene) => scene.id === sceneId))
+    || manifest.scenes.find((scene) => scene.files.length > 0)
+    || manifest.scenes[0];
+  if (target) {
+    names.push(...target.files);
   }
   return [...new Set(names)];
+}
+
+export function prefixRange(manifest: DiveManifest | null): DiveByteRange | null {
+  if (!manifest) {
+    return null;
+  }
+  const end = manifest.prefixEnd
+    || manifest.scenes.find((scene) => scene.length > 0)?.offset
+    || 0;
+  return end > 0 ? { offset: 0, length: end } : null;
+}
+
+export function sceneByteRange(manifest: DiveManifest | null, sceneId: string): DiveByteRange | null {
+  const scene = manifest?.scenes.find((item) => item.id === sceneId);
+  if (!scene || scene.length <= 0) {
+    return null;
+  }
+  return { offset: scene.offset, length: scene.length };
 }
 
 export function filesForScene(manifest: DiveManifest | null, sceneId: string): string[] {
@@ -243,11 +263,17 @@ export class DivePackSession implements DivePack {
   story: Story = { title: '', duration: 0, scenes: [] };
   files = new Map<string, Uint8Array>();
   urls = new Map<string, string>();
+  sourceUrl: string | null = null;
+  supportsRange = false;
   private rawStory: Story | null = null;
-  private waiters: Array<{ names: string[]; resolve: () => void }> = [];
+  private waiters: Array<{ names: string[]; resolve: () => void; reject: (error: Error) => void }> = [];
+  private rangeJobs = new Map<string, Promise<void>>();
   finished = false;
 
   addEntry(entry: ZipEntry): void {
+    if (this.files.has(entry.name)) {
+      return;
+    }
     this.files.set(entry.name, entry.data);
     blobUrlFor(this, entry.name);
     if (entry.name === DIVE_MANIFEST_NAME) {
@@ -260,6 +286,20 @@ export class DivePackSession implements DivePack {
       this.refreshStory();
     }
     this.flushWaiters();
+  }
+
+  async ingestAlignedBytes(bytes: Uint8Array): Promise<string[]> {
+    const names: string[] = [];
+    const parser = new ZipStreamParser();
+    for (const entry of await parser.push(bytes)) {
+      this.addEntry(entry);
+      names.push(entry.name);
+    }
+    for (const entry of await parser.end()) {
+      this.addEntry(entry);
+      names.push(entry.name);
+    }
+    return names;
   }
 
   refreshStory(): void {
@@ -281,8 +321,8 @@ export class DivePackSession implements DivePack {
     if (this.finished && !this.hasAll(needed)) {
       return Promise.reject(new Error(`Pack finished without: ${needed.filter((name) => !this.files.has(name)).join(', ')}`));
     }
-    return new Promise((resolve) => {
-      this.waiters.push({ names: needed, resolve });
+    return new Promise((resolve, reject) => {
+      this.waiters.push({ names: needed, resolve, reject });
     });
   }
 
@@ -291,10 +331,69 @@ export class DivePackSession implements DivePack {
     this.flushWaiters();
   }
 
+  async prioritizeScene(sceneId: string): Promise<void> {
+    const needed = filesForScene(this.manifest, sceneId);
+    if (!needed.length || this.hasAll(needed)) {
+      return;
+    }
+    const range = sceneByteRange(this.manifest, sceneId);
+    if (range && this.sourceUrl) {
+      await this.fetchRange(range);
+    }
+    if (!this.hasAll(needed)) {
+      await this.waitFor(needed);
+    }
+  }
+
+  backfillScenes(except?: string): void {
+    if (!this.manifest || !this.sourceUrl) {
+      return;
+    }
+    for (const scene of this.manifest.scenes) {
+      if (scene.id === except || scene.length <= 0) {
+        continue;
+      }
+      if (this.hasAll(scene.files)) {
+        continue;
+      }
+      void this.fetchRange({ offset: scene.offset, length: scene.length }).catch((error) => {
+        console.warn(`Failed to backfill scene ${scene.id}`, error);
+      });
+    }
+  }
+
+  async fetchRange(range: DiveByteRange): Promise<void> {
+    if (!this.sourceUrl || range.length <= 0) {
+      return;
+    }
+    const key = `${range.offset}:${range.length}`;
+    const existing = this.rangeJobs.get(key);
+    if (existing) {
+      return existing;
+    }
+    const job = this.fetchRangeOnce(range);
+    this.rangeJobs.set(key, job);
+    return job;
+  }
+
+  private async fetchRangeOnce(range: DiveByteRange): Promise<void> {
+    const result = await fetchByteRange(this.sourceUrl!, range.offset, range.length);
+    if (result.complete && !result.ranged) {
+      this.supportsRange = false;
+    } else if (result.ranged) {
+      this.supportsRange = true;
+    }
+    await this.ingestAlignedBytes(result.bytes);
+  }
+
   private flushWaiters(): void {
     this.waiters = this.waiters.filter((waiter) => {
       if (this.hasAll(waiter.names)) {
         waiter.resolve();
+        return false;
+      }
+      if (this.finished) {
+        waiter.reject(new Error(`Pack finished without: ${waiter.names.filter((name) => !this.files.has(name)).join(', ')}`));
         return false;
       }
       return true;
@@ -302,8 +401,70 @@ export class DivePackSession implements DivePack {
   }
 }
 
-export async function openDivePackStream(response: Response, onEntry?: (name: string) => void): Promise<DivePackSession> {
+export async function fetchByteRange(url: string, offset: number, length: number): Promise<{ bytes: Uint8Array; ranged: boolean; complete: boolean }> {
+  const end = offset + Math.max(0, length) - 1;
+  const response = await fetch(url, {
+    headers: length > 0 ? { Range: `bytes=${offset}-${end}` } : undefined,
+  });
+  if (!response.ok && response.status !== 206) {
+    throw new Error(`Failed to read ${url} bytes ${offset}-${end}: ${response.status}`);
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  return {
+    bytes,
+    ranged: response.status === 206,
+    complete: response.status === 200,
+  };
+}
+
+export async function openDivePack(url: string, options: { sceneId?: string } = {}): Promise<DivePackSession> {
   const session = new DivePackSession();
+  session.sourceUrl = url;
+
+  let probe: { bytes: Uint8Array; ranged: boolean; complete: boolean };
+  try {
+    probe = await fetchByteRange(url, 0, 32 * 1024);
+  } catch (error) {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to load DIVE pack: ${response.status}`);
+    }
+    return openDivePackStream(response, undefined, session);
+  }
+
+  await session.ingestAlignedBytes(probe.bytes);
+
+  if (probe.complete && !probe.ranged) {
+    session.markFinished();
+    return session;
+  }
+
+  session.supportsRange = probe.ranged;
+  if (!session.supportsRange || !session.manifest) {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to load DIVE pack: ${response.status}`);
+    }
+    return openDivePackStream(response, undefined, session);
+  }
+
+  const prefix = prefixRange(session.manifest);
+  if (prefix && !session.hasAll([DIVE_STORY_NAME, ...session.manifest.shared])) {
+    await session.fetchRange(prefix);
+  }
+
+  const startId = options.sceneId
+    || session.manifest.scenes.find((scene) => scene.files.length > 0)?.id;
+  if (startId) {
+    await session.prioritizeScene(startId);
+  }
+  await session.waitFor(filesNeededToStart(session.manifest, startId));
+  session.backfillScenes(startId);
+  return session;
+}
+
+export async function openDivePackStream(response: Response, onEntry?: (name: string) => void, existing?: DivePackSession): Promise<DivePackSession> {
+  const session = existing || new DivePackSession();
   const parser = new ZipStreamParser();
   const reader = response.body?.getReader();
 

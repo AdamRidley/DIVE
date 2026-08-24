@@ -5,12 +5,19 @@ export interface DiveManifestScene {
   length: number;
 }
 
+export interface DiveByteRange {
+  offset: number;
+  length: number;
+}
+
 export interface DiveManifest {
   version: 1;
   story: 'story.json';
   defaultLanguage: string;
   languages: string[];
   shared: string[];
+  /** Bytes [0, prefixEnd) cover dive.json, story.json, and video-wide media. */
+  prefixEnd: number;
   scenes: DiveManifestScene[];
 }
 

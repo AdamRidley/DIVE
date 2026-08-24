@@ -30,7 +30,20 @@ Missing local files are skipped with a warning. Remote CDN imports (e.g. D3 on j
 <dive-video src="./story.dive"></dive-video>
 ```
 
-The player streams `fetch().body` and walks **local file headers from the front**. Playback can start as soon as `dive.json`, `story.json`, video-wide media, and the first scene’s files have arrived. Later scenes keep downloading; if you seek into one that is not here yet, the clock holds and a spinner shows.
+The player does **not** download the whole file first.
+
+1. `Range` the first bytes to read `dive.json`
+2. `Range` `[0, prefixEnd)` for `story.json` + video-wide audio/captions/data
+3. `Range` the current scene’s `offset`/`length` — so `?scene=phase-3` (or a seek to that scene) can skip scenes 1–2
+4. Backfill skipped scenes in the background
+
+If the host ignores `Range` (HTTP 200), it falls back to a sequential stream. Same-origin Vite and most CDNs (jsDelivr, unpkg) support byte ranges. Cross-origin hosts must allow the `Range` header.
+
+```html
+<dive-video src="./wealth.dive"></dive-video>
+<!-- start on scene 3 without pulling scene 1–2 tools first -->
+<!-- page URL: ?scene=phase-3-population-blocks  or  #phase-3-population-blocks -->
+```
 
 HTML tools get a small fetch/`URL` shim so relative loads like `../data/foo.json` resolve inside the pack. External absolute URLs are unchanged.
 
@@ -49,4 +62,4 @@ HTML tools get a small fetch/`URL` shim so relative loads like `../data/foo.json
 }
 ```
 
-`offset` / `length` are byte ranges in the `.dive` file (for later HTTP Range). Sequential play does not need them.
+`offset` / `length` are byte ranges in the `.dive` file. The player uses them for HTTP `Range` so a seek or `?scene=` can skip earlier scene tools. Video-wide media in `shared` still comes first — that is required for any start language.
