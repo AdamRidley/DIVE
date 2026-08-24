@@ -73,7 +73,7 @@ Release path (already in Actions — do not invent a parallel one):
 2. `git tag vX.Y.Z && git push origin vX.Y.Z`
 3. `release.yml` builds, attaches `dist.tar.gz` + `dist-example.tar.gz`, `npm publish`, pushes the example image
 
-Requires repo secret `NPM_TOKEN` (Automation token, publish access). No token → npm step fails; GitHub Release + Docker still run.
+Requires npm trusted publishing on `dive-video` for GitHub Actions workflow `release.yml` in `AdamRidley/DIVE` (OIDC, no `NPM_TOKEN`).
 
 ## Pitfalls
 

@@ -84,7 +84,7 @@ This repository now includes two GitHub Actions workflows:
 - Publishes release artifacts (`dist.tar.gz`, `dist-example.tar.gz`) to GitHub Releases.
 - Builds and pushes the example Docker image.
 
-npm publish needs a repository secret named `NPM_TOKEN` (npm Automation token with publish access). Without it, the GitHub Release and Docker image still publish; only the npm step fails.
+Uses npm trusted publishing (OIDC) from this workflow. No `NPM_TOKEN` secret. The trusted publisher on npm must allow `release.yml` in `AdamRidley/DIVE`.
 
 ### Release image registry settings
 
