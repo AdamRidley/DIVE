@@ -10,6 +10,7 @@ import { IframeAdapter } from '../adapters/IframeAdapter';
 import { aspectCss, parseAspectRatio } from '../core/aspect';
 import { AudioEngine, collectStoryAudio } from '../core/audio';
 import { cuesAtTime, resolveCaptionTracks, ResolvedCaptionTrack } from '../core/captions';
+import { loadDivePack, shouldLoadAsDive } from '../core/dive-pack';
 
 const toolRegistry: Record<string, new () => IAdapter> = {
   'map': D3MapAdapter,
@@ -306,8 +307,20 @@ export class DiveVideo extends LitElement {
   private async loadStory(url: string) {
     try {
       const response = await fetch(url);
-      this.story = await response.json();
-      this.storyBaseUrl = new URL(url, window.location.href).href;
+      if (!response.ok) {
+        throw new Error(`Failed to load DIVE source: ${response.status}`);
+      }
+
+      const buffer = new Uint8Array(await response.arrayBuffer());
+      if (shouldLoadAsDive(url, buffer)) {
+        const pack = await loadDivePack(buffer);
+        this.story = pack.story;
+        this.storyBaseUrl = new URL(url, window.location.href).href;
+      } else {
+        this.story = JSON.parse(new TextDecoder().decode(buffer));
+        this.storyBaseUrl = new URL(url, window.location.href).href;
+      }
+
       this.applyAspectRatio(this.story?.aspectRatio);
       this.audioEngine.configure(this.story ? collectStoryAudio(this.story, this.storyBaseUrl) : []);
       this.captionTracks = this.story
