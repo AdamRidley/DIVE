@@ -6,6 +6,7 @@ export interface Story {
   // "9:16" (default), "16:9", "16/9", or a width/height number.
   aspectRatio?: string;
   audio?: StoryAudio;
+  captions?: StoryCaptions;
   scenes: Scene[];
   timelineSections?: TimelineSection[];
 }
@@ -20,6 +21,23 @@ export interface AudioClip {
 }
 
 export type StoryAudio = string | AudioClip | AudioClip[];
+
+export interface CaptionCue {
+  startTime: number;
+  endTime: number;
+  text: string;
+}
+
+export interface CaptionTrack {
+  src?: string; // WebVTT URL
+  cues?: CaptionCue[];
+  srclang?: string;
+  label?: string;
+  default?: boolean;
+  kind?: 'subtitles' | 'captions';
+}
+
+export type StoryCaptions = string | CaptionCue[] | CaptionTrack | CaptionTrack[];
 
 export interface TimelineSection {
   id?: string;

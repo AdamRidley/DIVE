@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { Sequencer } from '../core/Sequencer';
-import { Story, NarrativeState, TimelineSection, Overlay, OverlayAnchor, OverlayAnchorPlacement, OverlayCanonicalAnchor, OverlayPlacementUnit } from '../core/types';
+import { Story, NarrativeState, TimelineSection, Overlay, OverlayAnchor, OverlayAnchorPlacement, OverlayCanonicalAnchor, OverlayPlacementUnit, CaptionCue } from '../core/types';
 import { IAdapter } from '../core/Adapter';
 import { D3ScatterplotAdapter } from '../adapters/D3ScatterplotAdapter';
 import { D3MapAdapter } from '../adapters/D3MapAdapter';
@@ -9,6 +9,7 @@ import { IframeAdapter } from '../adapters/IframeAdapter';
 
 import { aspectCss, parseAspectRatio } from '../core/aspect';
 import { AudioEngine, collectStoryAudio } from '../core/audio';
+import { cuesAtTime, resolveCaptionTracks, ResolvedCaptionTrack } from '../core/captions';
 
 const toolRegistry: Record<string, new () => IAdapter> = {
   'map': D3MapAdapter,
@@ -40,6 +41,8 @@ export class DiveVideo extends LitElement {
   @state() private isFullscreen = false;
   @state() private isUIHidden = false;
   @state() private isMuted = false;
+  @state() private captionsEnabled = true;
+  @state() private activeCues: CaptionCue[] = [];
 
   @query('#canvas-container') private canvasContainer!: HTMLElement;
 
@@ -51,6 +54,7 @@ export class DiveVideo extends LitElement {
   private scrubberElement: HTMLElement | null = null;
   private hideUIHandle = 0;
   private audioEngine = new AudioEngine();
+  private captionTracks: ResolvedCaptionTrack[] = [];
   private storyBaseUrl = '';
 
   static styles = css`
@@ -109,7 +113,27 @@ export class DiveVideo extends LitElement {
       max-width: 40%;
       transition: opacity 0.3s;
     }
-    
+    .captions {
+      position: absolute;
+      left: 6%;
+      right: 6%;
+      bottom: 76px;
+      text-align: center;
+      pointer-events: none;
+      z-index: 5;
+    }
+    .caption-cue {
+      display: inline-block;
+      background: rgba(0, 0, 0, 0.75);
+      color: #fff;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: clamp(14px, 3.2cqw, 20px);
+      line-height: 1.35;
+      max-width: 100%;
+      white-space: pre-line;
+    }
+
     .controls {
       position: absolute;
       bottom: 0; left: 0; right: 0;
@@ -286,11 +310,15 @@ export class DiveVideo extends LitElement {
       this.storyBaseUrl = new URL(url, window.location.href).href;
       this.applyAspectRatio(this.story?.aspectRatio);
       this.audioEngine.configure(this.story ? collectStoryAudio(this.story, this.storyBaseUrl) : []);
+      this.captionTracks = this.story
+        ? await resolveCaptionTracks(this.story.captions, this.storyBaseUrl)
+        : [];
+      this.captionsEnabled = this.captionTracks.length > 0;
       
       this.sequencer = new Sequencer(this.story!, (state) => {
         this.currentTime = state.time;
         this.activeNarrativeState = state;
-        this.audioEngine.sync(state.time, this.isPlaying);
+        this.syncMedia(state.time);
 
         if (state.scene) {
           this.activeScenePauseOnInteract = this.resolvePauseOnInteract(state.scene, state.visualState);
@@ -408,7 +436,7 @@ export class DiveVideo extends LitElement {
     if (this.activeAdapter?.setPlaybackState) {
       this.activeAdapter.setPlaybackState(this.isPlaying, this.currentTime);
     }
-    this.audioEngine.sync(this.currentTime, this.isPlaying);
+    this.syncMedia(this.currentTime);
   }
 
   private applyAspectRatio(value?: string) {
@@ -418,9 +446,22 @@ export class DiveVideo extends LitElement {
     this.style.setProperty('--ar-h', String(aspect.height));
   }
 
+  private syncMedia(timeMs: number) {
+    this.audioEngine.sync(timeMs, this.isPlaying);
+    const cues = this.captionsEnabled
+      ? this.captionTracks.flatMap((track) => cuesAtTime(track.cues, timeMs))
+      : [];
+    this.activeCues = cues;
+  }
+
   private toggleMute() {
     this.isMuted = !this.isMuted;
     this.audioEngine.setMuted(this.isMuted);
+  }
+
+  private toggleCaptions() {
+    this.captionsEnabled = !this.captionsEnabled;
+    this.syncMedia(this.currentTime);
   }
 
   private togglePlay() {
@@ -665,6 +706,7 @@ export class DiveVideo extends LitElement {
     });
 
     const aspect = parseAspectRatio(this.story.aspectRatio);
+    const hasCaptions = this.captionTracks.length > 0;
     const hasAudio = this.audioEngine.hasAudio;
 
     return html`
@@ -683,6 +725,12 @@ export class DiveVideo extends LitElement {
               </div>
             `)}
           </div>
+
+          ${this.captionsEnabled && this.activeCues.length ? html`
+            <div class="captions" aria-hidden="true">
+              ${this.activeCues.map((cue) => html`<div class="caption-cue">${cue.text}</div>`)}
+            </div>
+          ` : ''}
         </div>
       </div>
 
@@ -738,6 +786,20 @@ export class DiveVideo extends LitElement {
           </button>
         ` : ''}
 
+        ${hasCaptions ? html`
+          <button
+            class="icon-btn"
+            @click=${this.toggleCaptions}
+            title="${this.captionsEnabled ? 'Hide captions' : 'Show captions'}"
+            aria-label="${this.captionsEnabled ? 'Hide captions' : 'Show captions'}"
+            aria-pressed=${this.captionsEnabled}
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z"/>
+            </svg>
+          </button>
+        ` : ''}
+
         <button class="icon-btn" @click=${this.toggleFullscreen} title="Toggle Fullscreen" aria-label="Toggle Fullscreen">
           <svg viewBox="0 0 24 24">
             ${this.isFullscreen 
@@ -749,7 +811,10 @@ export class DiveVideo extends LitElement {
       
       <!-- Accessibility Layer: Parallel DOM (Hidden visually) -->
       <div aria-live="polite" class="sr-only" style="position: absolute; width: 1px; height: 1px; overflow: hidden;">
-        ${visibleOverlays.filter(o => o.type === 'text').map(o => o.content).join(' ')}
+        ${[
+          ...visibleOverlays.filter(o => o.type === 'text').map(o => o.content),
+          ...this.activeCues.map((cue) => cue.text),
+        ].join(' ')}
       </div>
       
       <!-- Screen Reader Data Context -->

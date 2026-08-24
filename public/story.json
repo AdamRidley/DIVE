@@ -2,6 +2,11 @@
   "title": "Global Energy Shift",
   "duration": 40000,
   "aspectRatio": "16:9",
+  "captions": [
+    { "startTime": 0, "endTime": 5000, "text": "Population first: where people live." },
+    { "startTime": 10000, "endTime": 16000, "text": "Energy use against economic output." },
+    { "startTime": 20000, "endTime": 26000, "text": "An external tool can still stay on the timeline." }
+  ],
   "scenes": [
     {
       "id": "scene-1-population-map",

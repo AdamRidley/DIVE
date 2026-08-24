@@ -14,5 +14,9 @@ export type {
   TimelineSection,
   AudioClip,
   StoryAudio,
+  CaptionCue,
+  CaptionTrack,
+  StoryCaptions,
 } from './core/types';
 export { parseAspectRatio, DEFAULT_ASPECT } from './core/aspect';
+export { parseVtt, cuesAtTime } from './core/captions';
