@@ -17,8 +17,11 @@ npm run dev                 # PoC at http://localhost:5173/  (index.html + publi
 npm run typecheck           # tsc --noEmit
 npm run build               # library bundles + .d.ts → dist/
 npm run check:dist          # smoke-check published files exist
-npm run test:ci             # typecheck + build + check:dist
+npm run test:ci             # typecheck + validate stories + build + check:dist
 npm run build:example       # Wealth and Health demo → dist-example/
+npm run pack:dive -- path/to/story.json -o story.dive
+# <dive-video src="./story.dive"></dive-video>  — see docs/dive-pack.md
+
 ```
 
 Example (separate from the npm package):
@@ -39,6 +42,7 @@ npm run build:wealth-health-data   # regenerate Gapminder JSON from raw CSVs
 - `src/core/types.ts` — `Story` / `Scene` / `Keyframe` / `Overlay` types
 - `src/core/aspect.ts`, `src/core/audio.ts`, `src/core/captions.ts` — frame, soundtrack, VTT
 - `docs/features.md` — signed-off feature backlog
+- `docs/dive-pack.md` — `.dive` ordered-zip layout and packer
 - `src/adapters/` — built-in `map`, `scatterplot`, plus `IframeAdapter`
 - `public/` — PoC story + iframe/JS tool fixtures
 - `examples/the_wealth_and_health_of_nations/` — Gapminder demo (iframe tools, Docker)
