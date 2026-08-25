@@ -63,6 +63,9 @@ npm run build:wealth-health-data   # regenerate Gapminder JSON from raw CSVs
 - Default frame is **9:16**. Set `aspectRatio` on the story (`16:9`, `16/9`, `4:3`) to override. Host autosizes from width unless an explicit height or `:fullscreen` is set (then letterbox).
 - `audio` is a URL, clip object, or array. Overlay `{ "type": "audio", "content": "/vo.mp3" }` is also a clip. Synced on play/pause/seek.
 - `captions` is a VTT URL, cue array, or track object(s). CC button toggles; cues also go to `aria-live`.
+- `languages` lists codes shown in the settings cog. English is the fallback. One locale drives UI, captions, and VO. Tools get `DIVE_LANG`.
+- Keyboard: Space/K play, J/L or arrows ±5s, F fullscreen, M mute, C captions, Home/End, Esc closes drawers.
+- CSS parts: `canvas`, `poster`, `overlays`, `overlay`, `captions`, `controls`, `scrubber`, `buffer`, `chapters`, `settings`, `end-screen`.
 - Feature backlog: `docs/features.md`.
 - Workshop-first for product behaviour. Packaging/CI changes that the user asked for are in-scope.
 
