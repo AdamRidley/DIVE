@@ -1,17 +1,18 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { Sequencer } from '../core/Sequencer';
-import { Story, NarrativeState, TimelineSection, Overlay, OverlayAnchor, OverlayAnchorPlacement, OverlayCanonicalAnchor, OverlayPlacementUnit, CaptionCue } from '../core/types';
+import { Story, NarrativeState, TimelineSection, Overlay, OverlayAnchor, OverlayAnchorPlacement, OverlayCanonicalAnchor, OverlayPlacementUnit, CaptionCue, LanguageOption } from '../core/types';
 import { IAdapter } from '../core/Adapter';
 import { D3ScatterplotAdapter } from '../adapters/D3ScatterplotAdapter';
 import { D3MapAdapter } from '../adapters/D3MapAdapter';
 import { IframeAdapter } from '../adapters/IframeAdapter';
 
 import { aspectCss, parseAspectRatio } from '../core/aspect';
-import { AudioEngine, collectStoryAudio } from '../core/audio';
-import { cuesAtTime, resolveCaptionTracks, ResolvedCaptionTrack } from '../core/captions';
+import { AudioEngine, collectStoryAudio, filterAudioClips } from '../core/audio';
+import { captionTracksForLocale, cuesAtTime, resolveCaptionTracks, ResolvedCaptionTrack } from '../core/captions';
 import { filesForScene, loadDivePack, looksLikeDiveUrl, openDivePack, shouldLoadAsDive, DivePackSession } from '../core/dive-pack';
-import { readDiveUrlState } from '../core/url-state';
+import { listedLanguages, resolveLocalized, resolvePlayerLanguage, storeLanguage } from '../core/locale';
+import { readDiveUrlState, writeDiveUrlState } from '../core/url-state';
 
 const toolRegistry: Record<string, new () => IAdapter> = {
   'map': D3MapAdapter,
@@ -44,7 +45,15 @@ export class DiveVideo extends LitElement {
   @state() private isUIHidden = false;
   @state() private isMuted = false;
   @state() private captionsEnabled = true;
+  @state() private descriptionsEnabled = false;
   @state() private activeCues: CaptionCue[] = [];
+  @state() private playerLang = 'en';
+  @state() private settingsOpen = false;
+  @state() private chaptersOpen = false;
+  @state() private ended = false;
+  @state() private hasStarted = false;
+  @state() private sceneReady = true;
+  @state() private toolFading = false;
 
   @query('#canvas-container') private canvasContainer!: HTMLElement;
 
@@ -59,7 +68,8 @@ export class DiveVideo extends LitElement {
   private captionTracks: ResolvedCaptionTrack[] = [];
   private storyBaseUrl = '';
   private packSession: DivePackSession | null = null;
-  @state() private sceneReady = true;
+  private urlSyncHandle = 0;
+  private allAudioSpecs: ReturnType<typeof collectStoryAudio> = [];
 
   static styles = css`
     :host {
@@ -72,6 +82,7 @@ export class DiveVideo extends LitElement {
       background: #000;
       overflow: hidden;
       font-family: sans-serif;
+      outline: none;
     }
     :host(:fullscreen) {
       width: 100%;
@@ -100,6 +111,80 @@ export class DiveVideo extends LitElement {
       background: #f4f4f4;
       position: absolute;
       top: 0; left: 0; right: 0; bottom: 0;
+      transition: opacity 0.28s ease;
+    }
+    #canvas-container.fading {
+      opacity: 0;
+    }
+    .poster {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 4;
+      pointer-events: none;
+    }
+    .end-screen,
+    .drawer {
+      position: absolute;
+      z-index: 12;
+      color: #fff;
+      background: rgba(10, 10, 12, 0.88);
+    }
+    .end-screen {
+      inset: 0;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      gap: 12px;
+      padding: 24px;
+    }
+    .end-screen h2 {
+      margin: 0;
+      font-size: 1.4rem;
+    }
+    .drawer {
+      right: 10px;
+      bottom: 68px;
+      min-width: 180px;
+      max-width: min(280px, 80%);
+      max-height: 55%;
+      overflow: auto;
+      border-radius: 8px;
+      padding: 10px 0;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    .drawer h3 {
+      margin: 0 12px 8px;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      opacity: 0.7;
+    }
+    .drawer button,
+    .drawer label {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: 0;
+      color: #fff;
+      padding: 8px 12px;
+      margin: 0;
+      border-radius: 0;
+      font-size: 13px;
+    }
+    .drawer button:hover,
+    .drawer label:hover,
+    .drawer button[aria-current="true"] {
+      background: rgba(255,255,255,0.12);
+    }
+    .drawer label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
     }
     /* SVG Styling inside Shadow DOM via adapter requires standard CSS vars or global bleed, but for PoC we'll inject via Lit if needed. D3 inserts inline styles. */
 
@@ -266,6 +351,10 @@ export class DiveVideo extends LitElement {
     document.addEventListener('fullscreenchange', this.handleFullscreenChange);
     this.addEventListener('pointermove', this.resetUIHideTimer);
     this.addEventListener('pointerdown', this.resetUIHideTimer);
+    this.addEventListener('keydown', this.handleKeydown);
+    if (!this.hasAttribute('tabindex')) {
+      this.tabIndex = 0;
+    }
     this.applyAspectRatio();
   }
 
@@ -281,7 +370,9 @@ export class DiveVideo extends LitElement {
     document.removeEventListener('fullscreenchange', this.handleFullscreenChange);
     this.removeEventListener('pointermove', this.resetUIHideTimer);
     this.removeEventListener('pointerdown', this.resetUIHideTimer);
+    this.removeEventListener('keydown', this.handleKeydown);
     if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
+    if (this.urlSyncHandle) window.clearTimeout(this.urlSyncHandle);
     this.audioEngine.dispose();
   }
 
@@ -355,17 +446,28 @@ export class DiveVideo extends LitElement {
       }
 
       this.applyAspectRatio(this.story?.aspectRatio);
-      this.audioEngine.configure(this.story ? collectStoryAudio(this.story, this.storyBaseUrl) : []);
+      this.playerLang = resolvePlayerLanguage(this.story?.languages, urlState.lang);
+      this.allAudioSpecs = this.story ? collectStoryAudio(this.story, this.storyBaseUrl) : [];
+      this.applyLocaleMedia();
       this.captionTracks = this.story
         ? await resolveCaptionTracks(this.story.captions, this.storyBaseUrl)
         : [];
-      this.captionsEnabled = this.captionTracks.length > 0;
+      this.captionsEnabled = this.captionTracks.some((track) => track.kind !== 'descriptions');
       this.sceneReady = true;
+      this.hasStarted = false;
+      this.ended = false;
       
       this.sequencer = new Sequencer(this.story!, (state) => {
         this.currentTime = state.time;
         this.activeNarrativeState = state;
+        if (this.story && state.time >= this.story.duration && state.time > 0) {
+          if (this.isPlaying) {
+            this.isPlaying = false;
+          }
+          this.ended = true;
+        }
         this.syncMedia(state.time);
+        this.scheduleUrlSync();
 
         if (state.scene) {
           this.activeScenePauseOnInteract = this.resolvePauseOnInteract(state.scene, state.visualState);
@@ -452,6 +554,7 @@ export class DiveVideo extends LitElement {
     }
     this.activeToolId = scene.id;
     this.activeScenePauseOnInteract = this.resolvePauseOnInteract(scene, null);
+    this.toolFading = true;
 
     const tool = scene.tool;
     const packedName = this.packedNameForUrl(tool);
@@ -523,7 +626,11 @@ export class DiveVideo extends LitElement {
       }
 
       this.activeAdapter?.mount(this.canvasContainer, data);
+      this.activeAdapter?.setLanguage?.(this.playerLang);
+      this.activeAdapter?.onLanguage?.((code) => this.setLanguage(code));
       this.notifyAdapterPlaybackState();
+      requestAnimationFrame(() => { this.toolFading = false; });
+      this.prefetchNextScene(scene);
     } catch (e) {
       console.error("Failed to load data for tool:", e);
     }
@@ -545,10 +652,11 @@ export class DiveVideo extends LitElement {
 
   private syncMedia(timeMs: number) {
     this.audioEngine.sync(timeMs, this.isPlaying);
-    const cues = this.captionsEnabled
-      ? this.captionTracks.flatMap((track) => cuesAtTime(track.cues, timeMs))
-      : [];
-    this.activeCues = cues;
+    const tracks = captionTracksForLocale(this.captionTracks, this.playerLang, {
+      captions: this.captionsEnabled,
+      descriptions: this.descriptionsEnabled,
+    });
+    this.activeCues = tracks.flatMap((track) => cuesAtTime(track.cues, timeMs));
   }
 
   private toggleMute() {
@@ -571,6 +679,13 @@ export class DiveVideo extends LitElement {
     } else {
       this.audioEngine.unlock();
       this.lastVisualState = null;
+      this.hasStarted = true;
+      this.ended = false;
+      this.settingsOpen = false;
+      this.chaptersOpen = false;
+      if (this.currentTime >= (this.story?.duration || 0)) {
+        this.sequencer.seek(0);
+      }
       this.sequencer.play();
       this.isPlaying = true;
       this.notifyAdapterPlaybackState();
@@ -585,6 +700,7 @@ export class DiveVideo extends LitElement {
     const timeMs = percent * this.story.duration;
 
     this.lastVisualState = null; // Force snapback on scrub
+    this.ended = false;
     this.sequencer.seek(timeMs);
   }
 
@@ -653,6 +769,178 @@ export class DiveVideo extends LitElement {
       endTime: scene.endTime,
       description: `Tool: ${scene.id}`,
     }));
+  }
+
+  private languageOptions(): LanguageOption[] {
+    return listedLanguages(this.story?.languages);
+  }
+
+  private showLanguagePicker(): boolean {
+    return (this.story?.languages?.length || 0) > 1;
+  }
+
+  private applyLocaleMedia() {
+    this.audioEngine.configure(filterAudioClips(this.allAudioSpecs, this.playerLang, {
+      descriptions: this.descriptionsEnabled,
+    }));
+    this.audioEngine.setMuted(this.isMuted);
+    this.syncMedia(this.currentTime);
+  }
+
+  private setLanguage(code: string) {
+    if (!this.story || this.playerLang === code) {
+      return;
+    }
+    if (!this.languageOptions().some((item) => item.code === code)) {
+      return;
+    }
+    this.playerLang = code;
+    storeLanguage(code);
+    this.applyLocaleMedia();
+    this.activeAdapter?.setLanguage?.(code);
+    this.scheduleUrlSync();
+  }
+
+  private toggleSettings = () => {
+    this.settingsOpen = !this.settingsOpen;
+    if (this.settingsOpen) {
+      this.chaptersOpen = false;
+    }
+  };
+
+  private toggleChapters = () => {
+    this.chaptersOpen = !this.chaptersOpen;
+    if (this.chaptersOpen) {
+      this.settingsOpen = false;
+    }
+  };
+
+  private jumpToScene(sceneId: string) {
+    const scene = this.story?.scenes.find((item) => item.id === sceneId);
+    if (!scene || !this.sequencer) {
+      return;
+    }
+    this.chaptersOpen = false;
+    this.ended = false;
+    this.lastVisualState = null;
+    this.sequencer.seek(scene.startTime);
+  }
+
+  private replay = () => {
+    if (!this.sequencer) {
+      return;
+    }
+    this.ended = false;
+    this.hasStarted = true;
+    this.lastVisualState = null;
+    this.sequencer.seek(0);
+    this.audioEngine.unlock();
+    this.sequencer.play();
+    this.isPlaying = true;
+    this.notifyAdapterPlaybackState();
+  };
+
+  private scheduleUrlSync() {
+    if (this.urlSyncHandle) {
+      window.clearTimeout(this.urlSyncHandle);
+    }
+    this.urlSyncHandle = window.setTimeout(() => {
+      writeDiveUrlState({
+        timeMs: this.currentTime,
+        sceneId: this.activeToolId || undefined,
+        lang: this.playerLang,
+      });
+    }, 250);
+  }
+
+  private prefetchNextScene(scene: Story['scenes'][0]) {
+    const index = this.story?.scenes.findIndex((item) => item.id === scene.id) ?? -1;
+    const next = index >= 0 ? this.story?.scenes[index + 1] : undefined;
+    if (!next) {
+      return;
+    }
+    if (this.packSession) {
+      void this.packSession.prioritizeScene(next.id);
+      return;
+    }
+    const tool = next.tool;
+    if (tool.endsWith('.html') || tool.endsWith('.js') || tool.startsWith('http')) {
+      const href = new URL(tool, this.storyBaseUrl || window.location.href).href;
+      const link = document.createElement('link');
+      link.rel = 'prefetch';
+      link.href = href;
+      document.head.appendChild(link);
+    }
+  }
+
+  private handleKeydown = (event: KeyboardEvent) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+      return;
+    }
+    const target = event.target as HTMLElement | null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+      return;
+    }
+    switch (event.key) {
+      case ' ':
+      case 'k':
+      case 'K':
+        event.preventDefault();
+        this.togglePlay();
+        break;
+      case 'ArrowLeft':
+      case 'j':
+      case 'J':
+        event.preventDefault();
+        this.nudge(-5000);
+        break;
+      case 'ArrowRight':
+      case 'l':
+      case 'L':
+        event.preventDefault();
+        this.nudge(5000);
+        break;
+      case 'Home':
+        event.preventDefault();
+        this.sequencer?.seek(0);
+        break;
+      case 'End':
+        event.preventDefault();
+        if (this.story) {
+          this.sequencer?.seek(this.story.duration);
+        }
+        break;
+      case 'f':
+      case 'F':
+        event.preventDefault();
+        this.toggleFullscreen();
+        break;
+      case 'm':
+      case 'M':
+        event.preventDefault();
+        this.toggleMute();
+        break;
+      case 'c':
+      case 'C':
+        event.preventDefault();
+        this.toggleCaptions();
+        break;
+      case 'Escape':
+        this.settingsOpen = false;
+        this.chaptersOpen = false;
+        break;
+      default:
+        break;
+    }
+  };
+
+  private nudge(deltaMs: number) {
+    if (!this.sequencer || !this.story) {
+      return;
+    }
+    this.lastVisualState = null;
+    this.ended = false;
+    this.sequencer.seek(this.currentTime + deltaMs);
   }
 
   private normalizePlacementUnit(unit: OverlayPlacementUnit | undefined): OverlayPlacementUnit {
@@ -803,8 +1091,14 @@ export class DiveVideo extends LitElement {
     });
 
     const aspect = parseAspectRatio(this.story.aspectRatio);
-    const hasCaptions = this.captionTracks.length > 0;
-    const hasAudio = this.audioEngine.hasAudio;
+    const hasCaptions = this.captionTracks.some((track) => track.kind !== 'descriptions');
+    const hasDescriptions = this.allAudioSpecs.some((clip) => clip.role === 'descriptions')
+      || this.captionTracks.some((track) => track.kind === 'descriptions');
+    const hasAudio = this.audioEngine.hasAudio || this.allAudioSpecs.length > 0;
+    const languages = this.languageOptions();
+    const showLang = this.showLanguagePicker();
+    const poster = this.story.poster && !this.hasStarted ? this.story.poster : null;
+    const title = resolveLocalized(this.story.title, this.playerLang);
 
     return html`
       <div class="video-section">
@@ -812,36 +1106,48 @@ export class DiveVideo extends LitElement {
           class="video-ratio-wrapper"
           style="--aspect-ratio: ${aspectCss(aspect)}; --ar-w: ${aspect.width}; --ar-h: ${aspect.height};"
         >
-          <div id="canvas-container"></div>
+          <div id="canvas-container" class="${this.toolFading ? 'fading' : ''}" part="canvas"></div>
+          ${poster ? html`<img class="poster" part="poster" src="${poster}" alt="" />` : ''}
           ${this.sceneReady ? '' : html`<div class="buffer-spinner" part="buffer" aria-label="Loading scene"></div>`}
           
           <!-- Overlay Layer -->
-          <div class="overlays">
+          <div class="overlays" part="overlays">
             ${visibleOverlays.map(o => html`
-              <div class="overlay-item" style=${this.getOverlayPlacementStyle(o)}>
-                ${o.type === 'image' ? html`<img src="${o.content}" width="100%" />` : html`<p>${o.content}</p>`}
+              <div class="overlay-item" part="overlay" style=${this.getOverlayPlacementStyle(o)}>
+                ${o.type === 'image'
+                  ? html`<img src="${resolveLocalized(o.content, this.playerLang)}" width="100%" />`
+                  : html`<p>${resolveLocalized(o.content, this.playerLang)}</p>`}
               </div>
             `)}
           </div>
 
           ${this.captionsEnabled && this.activeCues.length ? html`
-            <div class="captions" aria-hidden="true">
+            <div class="captions" part="captions" aria-hidden="true">
               ${this.activeCues.map((cue) => html`<div class="caption-cue">${cue.text}</div>`)}
+            </div>
+          ` : ''}
+
+          ${this.ended ? html`
+            <div class="end-screen" part="end-screen">
+              <h2>${title || 'End'}</h2>
+              <button @click=${this.replay}>Replay</button>
             </div>
           ` : ''}
         </div>
       </div>
 
       <!-- Controls Layer -->
-      <div class="controls ${this.isFullscreen && this.isUIHidden ? 'hidden' : ''}">
+      <div class="controls ${this.isFullscreen && this.isUIHidden ? 'hidden' : ''}" part="controls">
         <button @click=${this.togglePlay}>${this.isPlaying ? 'Pause' : 'Play'}</button>
         
-        <div class="scrubber" @pointerdown=${this.handleScrubPointerDown}>
+        <div class="scrubber" part="scrubber" @pointerdown=${this.handleScrubPointerDown}>
           ${timelineSections.map((section, index) => {
             const startPercent = (section.startTime / duration) * 100;
             const widthPercent = ((section.endTime - section.startTime) / duration) * 100;
             const color = section.color || timelineSectionPalette[index % timelineSectionPalette.length];
-            const tooltip = section.description ? `${section.label}: ${section.description}` : section.label;
+            const tooltip = section.description
+              ? `${resolveLocalized(section.label, this.playerLang)}: ${resolveLocalized(section.description, this.playerLang)}`
+              : resolveLocalized(section.label, this.playerLang);
             const showLabel = widthPercent >= 8;
 
             return html`
@@ -850,7 +1156,7 @@ export class DiveVideo extends LitElement {
                 style="left: ${startPercent}%; width: ${widthPercent}%; background: ${color};"
                 title="${tooltip}"
               >
-                ${showLabel ? html`<span class="section-label">${section.label}</span>` : ''}
+                ${showLabel ? html`<span class="section-label">${resolveLocalized(section.label, this.playerLang)}</span>` : ''}
               </div>
             `;
           })}
@@ -905,12 +1211,63 @@ export class DiveVideo extends LitElement {
               : html`<path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>`}
           </svg>
         </button>
+
+        <button class="icon-btn" @click=${this.toggleChapters} title="Chapters" aria-label="Chapters" aria-pressed=${this.chaptersOpen}>
+          <svg viewBox="0 0 24 24"><path d="M3 5h18v2H3V5zm0 6h18v2H3v-2zm0 6h18v2H3v-2z"/></svg>
+        </button>
+
+        <button class="icon-btn" @click=${this.toggleSettings} title="Settings" aria-label="Settings" aria-pressed=${this.settingsOpen}>
+          <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.2 7.2 0 0 0-1.63-.94l-.36-2.54A.49.49 0 0 0 13.9 2h-3.8a.49.49 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.55-1.63.94l-2.39-.96a.49.49 0 0 0-.59.22L2.73 8.47a.49.49 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.13.23.4.32.64.22l2.39-.96c.5.39 1.04.7 1.63.94l.36 2.54c.05.24.25.41.48.41h3.8c.23 0 .43-.17.48-.41l.36-2.54c.59-.24 1.13-.55 1.63-.94l2.39.96c.23.09.51 0 .64-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
+        </button>
       </div>
+
+      ${this.chaptersOpen ? html`
+        <div class="drawer" part="chapters">
+          <h3>Chapters</h3>
+          ${this.story.scenes.map((scene) => html`
+            <button
+              aria-current=${scene.id === this.activeToolId}
+              @click=${() => this.jumpToScene(scene.id)}
+            >${scene.id}</button>
+          `)}
+        </div>
+      ` : ''}
+
+      ${this.settingsOpen ? html`
+        <div class="drawer" part="settings">
+          <h3>Settings</h3>
+          ${showLang ? html`
+            <h3>Language</h3>
+            ${languages.map((item) => html`
+              <button
+                aria-current=${item.code === this.playerLang}
+                @click=${() => this.setLanguage(item.code)}
+              >${item.label}</button>
+            `)}
+          ` : ''}
+          ${hasCaptions ? html`
+            <label>
+              <input type="checkbox" .checked=${this.captionsEnabled} @change=${this.toggleCaptions} />
+              Captions
+            </label>
+          ` : ''}
+          ${hasDescriptions ? html`
+            <label>
+              <input
+                type="checkbox"
+                .checked=${this.descriptionsEnabled}
+                @change=${() => { this.descriptionsEnabled = !this.descriptionsEnabled; this.applyLocaleMedia(); }}
+              />
+              Audio description
+            </label>
+          ` : ''}
+        </div>
+      ` : ''}
       
       <!-- Accessibility Layer: Parallel DOM (Hidden visually) -->
       <div aria-live="polite" class="sr-only" style="position: absolute; width: 1px; height: 1px; overflow: hidden;">
         ${[
-          ...visibleOverlays.filter(o => o.type === 'text').map(o => o.content),
+          ...visibleOverlays.filter(o => o.type === 'text').map(o => resolveLocalized(o.content, this.playerLang)),
           ...this.activeCues.map((cue) => cue.text),
         ].join(' ')}
       </div>
