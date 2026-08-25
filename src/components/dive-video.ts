@@ -8,6 +8,7 @@ import { D3MapAdapter } from '../adapters/D3MapAdapter';
 import { IframeAdapter } from '../adapters/IframeAdapter';
 
 import { aspectCss, parseAspectRatio } from '../core/aspect';
+import { stageSize } from '../core/stage';
 import { AudioEngine, collectStoryAudio, filterAudioClips } from '../core/audio';
 import { captionTracksForLocale, cuesAtTime, resolveCaptionTracks, ResolvedCaptionTrack } from '../core/captions';
 import { filesForScene, loadDivePack, looksLikeDiveUrl, openDivePack, shouldLoadAsDive, DivePackSession } from '../core/dive-pack';
@@ -56,6 +57,7 @@ export class DiveVideo extends LitElement {
   @state() private toolFading = false;
 
   @query('#canvas-container') private canvasContainer!: HTMLElement;
+  @query('.video-ratio-wrapper') private ratioWrapper?: HTMLElement;
 
   private sequencer: Sequencer | null = null;
   private activeAdapter: IAdapter | null = null;
@@ -70,6 +72,7 @@ export class DiveVideo extends LitElement {
   private packSession: DivePackSession | null = null;
   private urlSyncHandle = 0;
   private allAudioSpecs: ReturnType<typeof collectStoryAudio> = [];
+  private stageObserver: ResizeObserver | null = null;
 
   static styles = css`
     :host {
@@ -106,11 +109,14 @@ export class DiveVideo extends LitElement {
       height: min(100cqh, calc(100cqw * var(--ar-h, 16) / var(--ar-w, 9)));
     }
     #canvas-container {
-      width: 100%;
-      height: 100%;
+      width: var(--stage-w, 1920px);
+      height: var(--stage-h, 1080px);
       background: #f4f4f4;
       position: absolute;
-      top: 0; left: 0; right: 0; bottom: 0;
+      top: 0;
+      left: 0;
+      transform-origin: 0 0;
+      transform: scale(var(--stage-scale, 1));
       transition: opacity 0.28s ease;
     }
     #canvas-container.fading {
@@ -145,8 +151,8 @@ export class DiveVideo extends LitElement {
       font-size: 1.4rem;
     }
     .drawer {
-      right: 10px;
-      bottom: 68px;
+      position: absolute;
+      z-index: 12;
       min-width: 180px;
       max-width: min(280px, 80%);
       max-height: 55%;
@@ -154,6 +160,14 @@ export class DiveVideo extends LitElement {
       border-radius: 8px;
       padding: 10px 0;
       box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    .drawer.chapters {
+      left: 10px;
+      top: 52px;
+    }
+    .drawer.settings {
+      right: 10px;
+      top: 52px;
     }
     .drawer h3 {
       margin: 0 12px 8px;
@@ -247,19 +261,39 @@ export class DiveVideo extends LitElement {
     .controls {
       position: absolute;
       bottom: 0; left: 0; right: 0;
-      min-height: 60px;
+      min-height: 56px;
       background: linear-gradient(transparent, rgba(0, 0, 0, 0.82));
       display: flex;
       align-items: center;
       padding: 10px 10px 8px;
       box-sizing: border-box;
       color: white;
-      transition: transform 0.3s ease-in-out;
+      transition: opacity 0.25s ease, transform 0.25s ease;
       z-index: 10;
     }
-    .controls.hidden {
-      transform: translateY(100%);
+    .controls.hidden,
+    .corner-btn.hidden {
+      opacity: 0;
+      pointer-events: none;
     }
+    .controls.hidden {
+      transform: translateY(40%);
+    }
+    .corner-btn {
+      position: absolute;
+      top: 10px;
+      z-index: 11;
+      width: 36px;
+      height: 36px;
+      margin: 0;
+      padding: 0;
+      flex-shrink: 0;
+      background: rgba(0, 0, 0, 0.45);
+      border-radius: 8px;
+      transition: opacity 0.25s ease;
+    }
+    .corner-btn.chapters { left: 10px; }
+    .corner-btn.settings { right: 10px; }
     .icon-btn {
       background: transparent;
       padding: 6px;
@@ -268,14 +302,17 @@ export class DiveVideo extends LitElement {
       display: flex;
       align-items: center;
       justify-content: center;
+      flex-shrink: 0;
+      color: #fff;
     }
     .icon-btn[aria-pressed="true"] {
       background: rgba(255, 255, 255, 0.16);
     }
     .icon-btn svg {
-      width: 20px;
-      height: 20px;
-      fill: white;
+      width: 22px;
+      height: 22px;
+      fill: currentColor;
+      display: block;
     }
     button {
       background: #444;
@@ -359,9 +396,11 @@ export class DiveVideo extends LitElement {
   }
 
   protected async firstUpdated() {
+    this.stageObserver = new ResizeObserver(() => this.applyStageScale());
     if (this.src) {
       await this.loadStory(this.src);
     }
+    this.observeStage();
   }
 
   disconnectedCallback(): void {
@@ -373,6 +412,7 @@ export class DiveVideo extends LitElement {
     this.removeEventListener('keydown', this.handleKeydown);
     if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
     if (this.urlSyncHandle) window.clearTimeout(this.urlSyncHandle);
+    this.stageObserver?.disconnect();
     this.audioEngine.dispose();
   }
 
@@ -408,15 +448,34 @@ export class DiveVideo extends LitElement {
   }
 
   private resetUIHideTimer = () => {
-    if (!this.isFullscreen) {
-      this.isUIHidden = false;
-      return;
-    }
+    const keepChrome = !this.isPlaying || this.settingsOpen || this.chaptersOpen || this.ended;
     this.isUIHidden = false;
     if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
+    if (keepChrome) {
+      return;
+    }
     this.hideUIHandle = window.setTimeout(() => {
       this.isUIHidden = true;
     }, 2500);
+  }
+
+  private observeStage() {
+    if (this.ratioWrapper && this.stageObserver) {
+      this.stageObserver.observe(this.ratioWrapper);
+      this.applyStageScale();
+    }
+  }
+
+  private applyStageScale() {
+    const wrap = this.ratioWrapper;
+    if (!wrap) {
+      return;
+    }
+    const stage = stageSize(parseAspectRatio(this.story?.aspectRatio));
+    const scale = wrap.clientWidth / stage.width;
+    wrap.style.setProperty('--stage-w', `${stage.width}px`);
+    wrap.style.setProperty('--stage-h', `${stage.height}px`);
+    wrap.style.setProperty('--stage-scale', String(scale || 1));
   }
 
   private async loadStory(url: string) {
@@ -446,6 +505,7 @@ export class DiveVideo extends LitElement {
       }
 
       this.applyAspectRatio(this.story?.aspectRatio);
+      this.observeStage();
       this.playerLang = resolvePlayerLanguage(this.story?.languages, urlState.lang);
       this.allAudioSpecs = this.story ? collectStoryAudio(this.story, this.storyBaseUrl) : [];
       this.applyLocaleMedia();
@@ -456,6 +516,8 @@ export class DiveVideo extends LitElement {
       this.sceneReady = true;
       this.hasStarted = false;
       this.ended = false;
+      await this.updateComplete;
+      this.observeStage();
       
       this.sequencer = new Sequencer(this.story!, (state) => {
         this.currentTime = state.time;
@@ -676,6 +738,7 @@ export class DiveVideo extends LitElement {
       this.sequencer.pause();
       this.isPlaying = false;
       this.notifyAdapterPlaybackState();
+      this.resetUIHideTimer();
     } else {
       this.audioEngine.unlock();
       this.lastVisualState = null;
@@ -689,6 +752,7 @@ export class DiveVideo extends LitElement {
       this.sequencer.play();
       this.isPlaying = true;
       this.notifyAdapterPlaybackState();
+      this.resetUIHideTimer();
     }
   }
 
@@ -1099,6 +1163,8 @@ export class DiveVideo extends LitElement {
     const showLang = this.showLanguagePicker();
     const poster = this.story.poster && !this.hasStarted ? this.story.poster : null;
     const title = resolveLocalized(this.story.title, this.playerLang);
+    const hasSettings = showLang || hasCaptions || hasDescriptions;
+    const chromeHidden = this.isUIHidden;
 
     return html`
       <div class="video-section">
@@ -1137,7 +1203,29 @@ export class DiveVideo extends LitElement {
       </div>
 
       <!-- Controls Layer -->
-      <div class="controls ${this.isFullscreen && this.isUIHidden ? 'hidden' : ''}" part="controls">
+      <button
+        class="icon-btn corner-btn chapters ${chromeHidden ? 'hidden' : ''}"
+        @click=${this.toggleChapters}
+        title="Chapters"
+        aria-label="Chapters"
+        aria-pressed=${this.chaptersOpen}
+      >
+        <svg viewBox="0 0 24 24"><path d="M3 5h18v2H3V5zm0 6h18v2H3v-2zm0 6h18v2H3v-2z"/></svg>
+      </button>
+
+      ${hasSettings ? html`
+        <button
+          class="icon-btn corner-btn settings ${chromeHidden ? 'hidden' : ''}"
+          @click=${this.toggleSettings}
+          title="Settings"
+          aria-label="Settings"
+          aria-pressed=${this.settingsOpen}
+        >
+          <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.2 7.2 0 0 0-1.63-.94l-.36-2.54A.49.49 0 0 0 13.9 2h-3.8a.49.49 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.55-1.63.94l-2.39-.96a.49.49 0 0 0-.59.22L2.73 8.47a.49.49 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.13.23.4.32.64.22l2.39-.96c.5.39 1.04.7 1.63.94l.36 2.54c.05.24.25.41.48.41h3.8c.23 0 .43-.17.48-.41l.36-2.54c.59-.24 1.13-.55 1.63-.94l2.39.96c.23.09.51 0 .64-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
+        </button>
+      ` : ''}
+
+      <div class="controls ${chromeHidden ? 'hidden' : ''}" part="controls">
         <button @click=${this.togglePlay}>${this.isPlaying ? 'Pause' : 'Play'}</button>
         
         <div class="scrubber" part="scrubber" @pointerdown=${this.handleScrubPointerDown}>
@@ -1205,24 +1293,16 @@ export class DiveVideo extends LitElement {
         ` : ''}
 
         <button class="icon-btn" @click=${this.toggleFullscreen} title="Toggle Fullscreen" aria-label="Toggle Fullscreen">
-          <svg viewBox="0 0 24 24">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
             ${this.isFullscreen 
               ? html`<path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>` 
               : html`<path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>`}
           </svg>
         </button>
-
-        <button class="icon-btn" @click=${this.toggleChapters} title="Chapters" aria-label="Chapters" aria-pressed=${this.chaptersOpen}>
-          <svg viewBox="0 0 24 24"><path d="M3 5h18v2H3V5zm0 6h18v2H3v-2zm0 6h18v2H3v-2z"/></svg>
-        </button>
-
-        <button class="icon-btn" @click=${this.toggleSettings} title="Settings" aria-label="Settings" aria-pressed=${this.settingsOpen}>
-          <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.2 7.2 0 0 0-1.63-.94l-.36-2.54A.49.49 0 0 0 13.9 2h-3.8a.49.49 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.55-1.63.94l-2.39-.96a.49.49 0 0 0-.59.22L2.73 8.47a.49.49 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.13.23.4.32.64.22l2.39-.96c.5.39 1.04.7 1.63.94l.36 2.54c.05.24.25.41.48.41h3.8c.23 0 .43-.17.48-.41l.36-2.54c.59-.24 1.13-.55 1.63-.94l2.39.96c.23.09.51 0 .64-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
-        </button>
       </div>
 
       ${this.chaptersOpen ? html`
-        <div class="drawer" part="chapters">
+        <div class="drawer chapters" part="chapters">
           <h3>Chapters</h3>
           ${this.story.scenes.map((scene) => html`
             <button
@@ -1234,7 +1314,7 @@ export class DiveVideo extends LitElement {
       ` : ''}
 
       ${this.settingsOpen ? html`
-        <div class="drawer" part="settings">
+        <div class="drawer settings" part="settings">
           <h3>Settings</h3>
           ${showLang ? html`
             <h3>Language</h3>
