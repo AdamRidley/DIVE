@@ -1,11 +1,25 @@
 {
-  "title": "Global Energy Shift",
+  "title": {
+    "en": "Global Energy Shift",
+    "cy": "Newid Ynni Byd-eang"
+  },
   "duration": 40000,
   "aspectRatio": "16:9",
+  "languages": [
+    { "code": "en", "label": "English", "default": true },
+    { "code": "cy", "label": "Cymraeg" }
+  ],
   "captions": [
-    { "startTime": 0, "endTime": 5000, "text": "Population first: where people live." },
-    { "startTime": 10000, "endTime": 16000, "text": "Energy use against economic output." },
-    { "startTime": 20000, "endTime": 26000, "text": "An external tool can still stay on the timeline." }
+    { "srclang": "en", "label": "English", "default": true, "cues": [
+      { "startTime": 0, "endTime": 5000, "text": "Population first: where people live." },
+      { "startTime": 10000, "endTime": 16000, "text": "Energy use against economic output." },
+      { "startTime": 20000, "endTime": 26000, "text": "An external tool can still stay on the timeline." }
+    ]},
+    { "srclang": "cy", "label": "Cymraeg", "cues": [
+      { "startTime": 0, "endTime": 5000, "text": "Poblogaeth yn gyntaf: ble mae pobl yn byw." },
+      { "startTime": 10000, "endTime": 16000, "text": "Defnydd ynni yn erbyn allbwn economaidd." },
+      { "startTime": 20000, "endTime": 26000, "text": "Gall offeryn allanol aros ar y llinell amser." }
+    ]}
   ],
   "scenes": [
     {
