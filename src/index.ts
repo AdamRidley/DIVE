@@ -17,6 +17,11 @@ export type {
   CaptionCue,
   CaptionTrack,
   StoryCaptions,
+  LanguageOption,
+  LocalizedString,
+  AudioRole,
 } from './core/types';
 export { parseAspectRatio, DEFAULT_ASPECT } from './core/aspect';
-export { parseVtt, cuesAtTime } from './core/captions';
+export { parseVtt, cuesAtTime, captionTracksForLocale } from './core/captions';
+export { resolveLocalized, resolvePlayerLanguage, DEFAULT_LANGUAGE } from './core/locale';
+export { readDiveUrlState, writeDiveUrlState } from './core/url-state';

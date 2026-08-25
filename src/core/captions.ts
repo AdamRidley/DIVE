@@ -4,7 +4,7 @@ export interface ResolvedCaptionTrack {
   id: string;
   label: string;
   srclang?: string;
-  kind: 'subtitles' | 'captions';
+  kind: 'subtitles' | 'captions' | 'descriptions';
   cues: CaptionCue[];
 }
 
@@ -68,6 +68,25 @@ export function parseVtt(source: string): CaptionCue[] {
 
 export function cuesAtTime(cues: CaptionCue[], timeMs: number): CaptionCue[] {
   return cues.filter((cue) => timeMs >= cue.startTime && timeMs < cue.endTime);
+}
+
+export function captionTracksForLocale(
+  tracks: ResolvedCaptionTrack[],
+  lang: string,
+  options: { captions: boolean; descriptions: boolean },
+): ResolvedCaptionTrack[] {
+  return tracks.filter((track) => {
+    if (track.kind === 'descriptions') {
+      return options.descriptions;
+    }
+    if (!options.captions) {
+      return false;
+    }
+    if (track.srclang && track.srclang !== lang) {
+      return false;
+    }
+    return true;
+  });
 }
 
 function isCueArray(value: unknown): value is CaptionCue[] {

@@ -11,7 +11,9 @@ export class IframeAdapter implements IAdapter {
   private pendingTime = 0;
   private pendingPlaybackIsPlaying: boolean | null = null;
   private pendingPlaybackTime = 0;
+  private pendingLang: string | null = null;
   private interactCallback: (() => void) | null = null;
+  private languageCallback: ((lang: string) => void) | null = null;
 
   private messageHandler = (event: MessageEvent) => {
     if (!this.iframe || event.source !== this.iframe.contentWindow) {
@@ -20,6 +22,9 @@ export class IframeAdapter implements IAdapter {
 
     if (event.data?.type === 'DIVE_INTERACT') {
       this.interactCallback?.();
+    }
+    if (event.data?.type === 'DIVE_LANG' && typeof event.data.lang === 'string') {
+      this.languageCallback?.(event.data.lang);
     }
   };
 
@@ -49,7 +54,8 @@ export class IframeAdapter implements IAdapter {
       if (typeof this.initData !== 'undefined') {
         targetWindow.postMessage({
           type: 'DIVE_INIT',
-          data: this.initData
+          data: this.initData,
+          lang: this.pendingLang,
         }, '*');
       }
 
@@ -69,6 +75,13 @@ export class IframeAdapter implements IAdapter {
           time: this.pendingPlaybackTime
         }, '*');
       }
+
+      if (this.pendingLang) {
+        targetWindow.postMessage({
+          type: 'DIVE_LANG',
+          lang: this.pendingLang,
+        }, '*');
+      }
     };
   }
 
@@ -86,6 +99,7 @@ export class IframeAdapter implements IAdapter {
     this.pendingTime = 0;
     this.pendingPlaybackIsPlaying = null;
     this.pendingPlaybackTime = 0;
+    this.pendingLang = null;
   }
 
   setState(state: any, time: number): void {
@@ -120,6 +134,20 @@ export class IframeAdapter implements IAdapter {
         time: timeMs,
       }, '*');
     }
+  }
+
+  setLanguage(lang: string): void {
+    this.pendingLang = lang;
+    if (this.isLoaded && this.iframe?.contentWindow) {
+      this.iframe.contentWindow.postMessage({
+        type: 'DIVE_LANG',
+        lang,
+      }, '*');
+    }
+  }
+
+  onLanguage(callback: (lang: string) => void): void {
+    this.languageCallback = callback;
   }
 }
 

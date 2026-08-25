@@ -1,4 +1,5 @@
-import { AudioClip, Overlay, Scene, Story, StoryAudio } from './types';
+import { AudioClip, AudioRole, Overlay, Scene, Story, StoryAudio } from './types';
+import { resolveLocalized } from './locale';
 
 export interface NormalizedAudioClip {
   id: string;
@@ -8,6 +9,8 @@ export interface NormalizedAudioClip {
   offset: number;
   volume: number;
   loop: boolean;
+  lang?: string;
+  role: AudioRole;
 }
 
 function asClip(input: string | AudioClip, fallbackId: string, storyDuration: number): NormalizedAudioClip | null {
@@ -26,6 +29,8 @@ function asClip(input: string | AudioClip, fallbackId: string, storyDuration: nu
     offset: Number.isFinite(raw.offset) ? Math.max(0, raw.offset as number) : 0,
     volume: Number.isFinite(raw.volume) ? Math.min(1, Math.max(0, raw.volume as number)) : 1,
     loop: Boolean(raw.loop),
+    lang: raw.lang,
+    role: raw.role || 'narration',
   };
 }
 
@@ -51,8 +56,24 @@ export function collectStoryAudio(story: Story, baseUrl: string): NormalizedAudi
       if (overlay.type !== 'audio') {
         return;
       }
+      if (typeof overlay.content === 'object' && overlay.content) {
+        Object.entries(overlay.content).forEach(([lang, src]) => {
+          const clip = asClip({
+            src,
+            lang,
+            startTime: scene.startTime + overlay.time,
+            endTime: scene.startTime + overlay.time + overlay.duration,
+            volume: overlay.volume,
+          }, `overlay-${sceneIndex}-${overlayIndex}-${lang}`, story.duration);
+          if (clip) {
+            clip.src = new URL(clip.src, baseUrl).href;
+            clips.push(clip);
+          }
+        });
+        return;
+      }
       const clip = asClip({
-        src: overlay.content,
+        src: resolveLocalized(overlay.content, 'en'),
         startTime: scene.startTime + overlay.time,
         endTime: scene.startTime + overlay.time + overlay.duration,
         volume: overlay.volume,
@@ -65,6 +86,22 @@ export function collectStoryAudio(story: Story, baseUrl: string): NormalizedAudi
   });
 
   return clips;
+}
+
+export function filterAudioClips(
+  clips: NormalizedAudioClip[],
+  lang: string,
+  options: { descriptions: boolean },
+): NormalizedAudioClip[] {
+  return clips.filter((clip) => {
+    if (clip.role === 'descriptions') {
+      return options.descriptions;
+    }
+    if (clip.lang && clip.lang !== lang) {
+      return false;
+    }
+    return true;
+  });
 }
 
 interface ManagedClip {
