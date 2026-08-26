@@ -10,15 +10,17 @@ export const SEEK_TIMEOUT_MS = 250;
 /** Clock has started once currentTime leaves the assigned value. */
 export const CLOCK_MOVE_SECONDS = 0.015;
 /** After the clock is running, snap again if still this far off. */
-export const START_SNAP_SECONDS = 0.08;
+export const START_SNAP_SECONDS = 0.04;
 /** While locked, only resync if drift stays this large. */
-export const LOCKED_RESYNC_SECONDS = 0.22;
+export const LOCKED_RESYNC_SECONDS = 0.09;
 /** Don't resync again until this long after the last seek. */
-export const RESYNC_COOLDOWN_MS = 700;
+export const RESYNC_COOLDOWN_MS = 450;
+/** Stay in starting this long while the decoder clock is still frozen. */
+export const START_WAIT_MS = 1200;
 /** How long the decoder typically sits still after play(). */
-export const DEFAULT_PREROLL_SECONDS = 0.2;
-export const MIN_PREROLL_SECONDS = 0.08;
-export const MAX_PREROLL_SECONDS = 0.35;
+export const DEFAULT_PREROLL_SECONDS = 0.28;
+export const MIN_PREROLL_SECONDS = 0.12;
+export const MAX_PREROLL_SECONDS = 0.45;
 
 export interface AudioSyncInput {
   now: number;
@@ -70,11 +72,15 @@ function decoderReady(input: AudioSyncInput): boolean {
   return elapsed >= SEEK_TIMEOUT_MS || (elapsed >= SEEK_HOLD_MS && !input.seeking && input.readyState >= 2);
 }
 
+function clampedPreroll(input: AudioSyncInput): number {
+  return Math.max(MIN_PREROLL_SECONDS, Math.min(MAX_PREROLL_SECONDS, input.preroll || DEFAULT_PREROLL_SECONDS));
+}
+
 export function planAudioSync(input: AudioSyncInput): AudioSyncPlan {
   const drift = input.audioTime - input.mediaTime;
   const abs = Math.abs(drift);
   const moved = input.clockMoved || Math.abs(input.audioTime - input.lastAssigned) >= CLOCK_MOVE_SECONDS;
-  const preroll = Math.max(MIN_PREROLL_SECONDS, Math.min(MAX_PREROLL_SECONDS, input.preroll || DEFAULT_PREROLL_SECONDS));
+  const preroll = clampedPreroll(input);
 
   if (input.hard || (input.phase === 'locked' && abs >= HARD_SEEK_SECONDS)) {
     return keep(input, {
@@ -93,7 +99,7 @@ export function planAudioSync(input: AudioSyncInput): AudioSyncPlan {
 
   if (input.phase === 'seeking') {
     if (!decoderReady(input)) {
-      return keep(input, { mode: 'hold', clockMoved: moved });
+      return keep(input, { mode: 'hold', clockMoved: false });
     }
     return keep(input, {
       action: 'seek',
@@ -109,22 +115,45 @@ export function planAudioSync(input: AudioSyncInput): AudioSyncPlan {
   }
 
   if (input.phase === 'starting') {
-    if (!moved && input.now - input.lastSeekAt < 400) {
-      return keep(input, { mode: 'start', action: 'play', clockMoved: false, holdMs: 0 });
+    if (!moved) {
+      if (input.now - input.lastSeekAt < START_WAIT_MS) {
+        return keep(input, { mode: 'start', action: 'play', clockMoved: false, holdMs: 0 });
+      }
+      if (input.resyncs < 2 && abs >= START_SNAP_SECONDS) {
+        return keep(input, {
+          action: 'seek',
+          seekTo: input.mediaTime + preroll,
+          mode: 'seek',
+          phase: 'starting',
+          lastSeekAt: input.now,
+          lastAssigned: input.mediaTime + preroll,
+          clockMoved: false,
+          resyncs: input.resyncs + 1,
+          event: 'start-snap',
+          holdMs: 0,
+        });
+      }
+      return keep(input, {
+        action: 'play',
+        mode: 'locked',
+        phase: 'locked',
+        clockMoved: false,
+        holdMs: 0,
+      });
     }
 
-    if (moved && abs >= START_SNAP_SECONDS && input.resyncs < 1) {
+    if (abs >= START_SNAP_SECONDS && input.resyncs < 2) {
       return keep(input, {
         action: 'seek',
-        seekTo: input.mediaTime,
+        seekTo: input.mediaTime + preroll,
         mode: 'seek',
-        phase: 'seeking',
+        phase: 'starting',
         lastSeekAt: input.now,
-        lastAssigned: input.mediaTime,
+        lastAssigned: input.mediaTime + preroll,
         clockMoved: false,
         resyncs: input.resyncs + 1,
         event: 'start-snap',
-        holdMs: SEEK_HOLD_MS,
+        holdMs: 0,
       });
     }
 
@@ -132,7 +161,7 @@ export function planAudioSync(input: AudioSyncInput): AudioSyncPlan {
       action: 'play',
       mode: 'locked',
       phase: 'locked',
-      clockMoved: moved,
+      clockMoved: true,
       holdMs: 0,
     });
   }

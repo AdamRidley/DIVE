@@ -66,19 +66,51 @@ const starting = planAudioSync(base({
 assert.equal(starting.phase, 'starting');
 assert.equal(starting.action, 'play');
 
-const running = planAudioSync(base({
+// Replay of the first-play lock: clock finally moves 359ms after preroll, 100ms late.
+const firstPlay = planAudioSync(base({
+  now: 3639674,
+  mediaTime: 59.45122,
+  audioTime: 59.349496,
+  phase: 'starting',
+  lastSeekAt: 3639315,
+  lastAssigned: 59.29258,
+  paused: false,
+  clockMoved: false,
+  preroll: 0.2,
+  resyncs: 0,
+}));
+assert.equal(firstPlay.event, 'start-snap');
+assert.equal(firstPlay.action, 'seek');
+assert.equal(firstPlay.phase, 'starting');
+assert.ok(firstPlay.seekTo > 59.45122);
+
+// Frozen past 400ms must not lock — that was the first-play miss if lastSeekAt was stale.
+const stillFrozen = planAudioSync(base({
+  now: 3639620,
+  mediaTime: 59.39288,
+  audioTime: 59.29258,
+  phase: 'starting',
+  lastSeekAt: 3639219,
+  lastAssigned: 59.29258,
+  paused: false,
+  clockMoved: false,
+  preroll: 0.2,
+}));
+assert.equal(stillFrozen.phase, 'starting');
+assert.equal(stillFrozen.mode, 'start');
+
+const aligned = planAudioSync(base({
   now: 10350,
   mediaTime: 42.35,
-  audioTime: 42.33,
+  audioTime: 42.345,
   phase: 'starting',
   lastSeekAt: 10080,
   lastAssigned: 42.28,
   paused: false,
   clockMoved: true,
 }));
-assert.equal(running.phase, 'locked');
-assert.equal(running.mode, 'locked');
-assert.notEqual(running.action, 'slew');
+assert.equal(aligned.phase, 'locked');
+assert.equal(aligned.mode, 'locked');
 
 const wander = planAudioSync(base({
   mediaTime: 50,
@@ -93,7 +125,7 @@ assert.equal(wander.action, 'play');
 const late = planAudioSync(base({
   now: 12000,
   mediaTime: 50,
-  audioTime: 49.7,
+  audioTime: 49.85,
   phase: 'locked',
   paused: false,
   lastSeekAt: 10000,

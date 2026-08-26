@@ -292,7 +292,7 @@ export class AudioEngine {
 
         if (!clip.clockMoved && plan.clockMoved && clip.playAt) {
           const startup = (now - clip.playAt) / 1000;
-          if (startup > 0.04 && startup < 0.5) {
+          if (startup > 0.04 && startup < 0.7) {
             clip.preroll = Math.max(
               MIN_PREROLL_SECONDS,
               Math.min(MAX_PREROLL_SECONDS, clip.preroll * 0.55 + startup * 0.45),
@@ -313,7 +313,8 @@ export class AudioEngine {
 
         if (plan.action === 'seek' && plan.seekTo !== undefined) {
           try {
-            if (!clip.element.paused) {
+            const liveSeek = plan.phase === 'starting';
+            if (!liveSeek && !clip.element.paused) {
               clip.element.pause();
             }
             clip.element.currentTime = plan.seekTo;
