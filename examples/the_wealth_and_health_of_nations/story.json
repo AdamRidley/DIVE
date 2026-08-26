@@ -5,6 +5,7 @@
   },
   "duration": 110000,
   "aspectRatio": "16:9",
+  "uiMode": "inset",
   "audio": {
     "src": "audio/placid-ambient.ogg",
     "role": "music",

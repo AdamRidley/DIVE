@@ -20,6 +20,7 @@ export type {
   LanguageOption,
   LocalizedString,
   AudioRole,
+  UiMode,
 } from './core/types';
 export { parseAspectRatio, DEFAULT_ASPECT } from './core/aspect';
 export { parseVtt, cuesAtTime, captionTracksForLocale } from './core/captions';

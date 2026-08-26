@@ -9,11 +9,19 @@ export interface Story {
   captions?: StoryCaptions;
   languages?: LanguageOption[];
   poster?: string;
+  /**
+   * Player chrome. `autohide` overlays the picture and captures the first tap.
+   * `inset` keeps chrome outside the picture so the tool is always clickable.
+   * A scene `uiMode` overrides this.
+   */
+  uiMode?: UiMode;
   assets?: StoryAsset[];
   dependencies?: string[];
   scenes: Scene[];
   timelineSections?: TimelineSection[];
 }
+
+export type UiMode = 'autohide' | 'inset';
 
 export type LocalizedString = string | Record<string, string>;
 
@@ -79,6 +87,7 @@ export interface Scene {
   data?: string | object; // optional URL or inline data to provide to the tool
   sendData?: boolean; // if false, DIVE mounts the tool without sending scene.data
   pauseOnInteract?: boolean; // If true, tool interaction pauses playback for this scene
+  uiMode?: UiMode;
   keyframes: Keyframe[];
   overlays: Overlay[];
   dependencies?: string[];

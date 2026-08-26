@@ -60,6 +60,7 @@ npm run build:wealth-health-data   # regenerate Gapminder JSON from raw CSVs
 - `visualState.streamTime: true` makes the player call `setState` every tick.
 - `pauseOnInteract` may be set on the scene or on the current keyframe state.
 - Overlay placement is `placement: { anchor | mode: "absolute" }`. Legacy `position` is ignored. Audio overlays may omit `placement`.
+- `uiMode` is `autohide` (default: overlay chrome, first tap shows it) or `inset` (chrome outside the picture). Scene `uiMode` overrides the story. Attribute `ui-mode` on `<dive-video>` wins.
 - Default frame is **9:16**. Set `aspectRatio` on the story (`16:9`, `16/9`, `4:3`) to override. Host autosizes from width unless an explicit height or `:fullscreen` is set (then letterbox).
 - `audio` is a URL, clip object, or array. Overlay `{ "type": "audio", "content": "/vo.mp3" }` is also a clip. Synced on play/pause/seek.
 - `captions` is a VTT URL, cue array, or track object(s). CC button toggles; cues also go to `aria-live`.
