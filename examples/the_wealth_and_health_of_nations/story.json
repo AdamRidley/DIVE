@@ -108,7 +108,7 @@
       "pauseOnInteract": false,
       "startTime": 0,
       "endTime": 30000,
-      "sendData": false,
+      "sendData": true,
       "keyframes": [
         {
           "time": 0,
@@ -220,7 +220,8 @@
           },
           "hideWhenPaused": true
         }
-      ]
+      ],
+      "data": "data/wealth-health-gapminder.json"
     },
     {
       "id": "phase-2-rosling-bubbles",
@@ -228,7 +229,7 @@
       "pauseOnInteract": false,
       "startTime": 30000,
       "endTime": 75000,
-      "sendData": false,
+      "sendData": true,
       "keyframes": [
         {
           "time": 0,
@@ -321,7 +322,8 @@
           },
           "hideWhenPaused": true
         }
-      ]
+      ],
+      "data": "data/wealth-health-gapminder.json"
     },
     {
       "id": "phase-3-population-blocks",
@@ -329,7 +331,7 @@
       "pauseOnInteract": true,
       "startTime": 75000,
       "endTime": 110000,
-      "sendData": false,
+      "sendData": true,
       "keyframes": [
         {
           "time": 0,
@@ -435,7 +437,8 @@
           },
           "hideWhenPaused": true
         }
-      ]
+      ],
+      "data": "data/wealth-health-gapminder.json"
     }
   ],
   "languages": [

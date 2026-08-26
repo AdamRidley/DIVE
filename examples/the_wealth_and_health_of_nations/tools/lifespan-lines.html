@@ -582,6 +582,7 @@
       chartData = data;
       setupBaseChart();
       applyState(currentState, 0);
+      window.parent?.postMessage({ type: 'DIVE_READY', source: 'lifespan-lines' }, '*');
     }
 
     window.addEventListener('resize', () => {
@@ -613,7 +614,7 @@
       if (!chartData) {
         bootstrapStandalone();
       }
-    }, 180);
+    }, 1500);
   </script>
 </body>
 </html>

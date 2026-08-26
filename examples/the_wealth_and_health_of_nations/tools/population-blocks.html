@@ -621,6 +621,7 @@
       userDismissedDimming = false;
 
       render('world', 0);
+      window.parent?.postMessage({ type: 'DIVE_READY', source: 'population-blocks' }, '*');
     }
 
     backButton.on('click', () => {
@@ -682,7 +683,7 @@
       if (!dataModel) {
         bootstrapStandalone();
       }
-    }, 180);
+    }, 1500);
   </script>
 </body>
 </html>
