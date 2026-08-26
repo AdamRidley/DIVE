@@ -113,16 +113,21 @@ interface ManagedClip {
   lastTarget: number;
   rate: number;
   lastRateAt: number;
+  correcting: boolean;
 }
 
-/** Target rate is 1.0 inside this band. */
-const RATE_DEADBAND_SECONDS = 0.04;
+/** Start rate-correcting only once drift is clearly worth it. */
+const RATE_ENTER_SECONDS = 0.18;
+/** Stop correcting once back inside this band (hysteresis vs enter). */
+const RATE_EXIT_SECONDS = 0.08;
 /** Drift that maps to the max target-rate offset (wider = gentler). */
 const RATE_DRIFT_SPAN_SECONDS = 4;
 /** Cap on |target playbackRate - 1|. */
 const MAX_TARGET_RATE_DELTA = 0.12;
 /** How fast the applied rate may move toward the target. */
 const MAX_RATE_CHANGE_PER_SECOND = 0.01;
+/** Don't poke the decoder for tinier rate writes than this. */
+const RATE_WRITE_EPSILON = 0.001;
 /** Only hard-seek for a real jump (scrub / scene skip). */
 const HARD_SEEK_SECONDS = 1.25;
 /** Ignore further seeks after a jump while the decoder settles. */
@@ -136,10 +141,12 @@ function applySlewedRate(clip: ManagedClip, targetRate: number, now: number): vo
   const delta = targetRate - clip.rate;
   const step = Math.max(-maxStep, Math.min(maxStep, delta));
   clip.rate += step;
-  if (Math.abs(clip.rate - 1) < 0.0002 && Math.abs(targetRate - 1) < 0.0002) {
+  if (Math.abs(clip.rate - 1) < RATE_WRITE_EPSILON && Math.abs(targetRate - 1) < RATE_WRITE_EPSILON) {
     clip.rate = 1;
   }
-  clip.element.playbackRate = clip.rate;
+  if (Math.abs(clip.element.playbackRate - clip.rate) >= RATE_WRITE_EPSILON) {
+    clip.element.playbackRate = clip.rate;
+  }
 }
 
 export interface AudioSyncDebug {
@@ -171,7 +178,7 @@ export class AudioEngine {
       element.playbackRate = 1;
       element.volume = spec.volume * this.masterVolume;
       element.muted = this.muted;
-      return { spec, element, playLock: null, lastSeekAt: 0, lastDrift: 0, lastTarget: 0, rate: 1, lastRateAt: 0 };
+      return { spec, element, playLock: null, lastSeekAt: 0, lastDrift: 0, lastTarget: 0, rate: 1, lastRateAt: 0, correcting: false };
     });
   }
 
@@ -223,7 +230,10 @@ export class AudioEngine {
         }
         clip.rate = 1;
         clip.lastRateAt = now;
-        clip.element.playbackRate = 1;
+        clip.correcting = false;
+        if (clip.element.playbackRate !== 1) {
+          clip.element.playbackRate = 1;
+        }
         clip.lastDrift = 0;
         clip.lastTarget = mediaTime;
         continue;
@@ -247,7 +257,10 @@ export class AudioEngine {
             clip.element.currentTime = mediaTime;
             clip.rate = 1;
             clip.lastRateAt = now;
-            clip.element.playbackRate = 1;
+            clip.correcting = false;
+            if (clip.element.playbackRate !== 1) {
+              clip.element.playbackRate = 1;
+            }
             clip.lastSeekAt = now;
             drift = 0;
             targetRate = 1;
@@ -257,17 +270,27 @@ export class AudioEngine {
           }
         } else if (holdLeft > 0) {
           targetRate = 1;
+          clip.correcting = false;
           mode = 'hold';
-        } else if (Math.abs(drift) <= RATE_DEADBAND_SECONDS) {
-          targetRate = 1;
-          mode = Math.abs(clip.rate - 1) < 0.0005 ? 'locked' : 'rate';
         } else {
-          const adj = Math.max(-MAX_TARGET_RATE_DELTA, Math.min(MAX_TARGET_RATE_DELTA, drift / RATE_DRIFT_SPAN_SECONDS));
-          targetRate = 1 - adj;
-          mode = 'rate';
+          const abs = Math.abs(drift);
+          if (!clip.correcting && abs >= RATE_ENTER_SECONDS) {
+            clip.correcting = true;
+          } else if (clip.correcting && abs <= RATE_EXIT_SECONDS) {
+            clip.correcting = false;
+          }
+
+          if (clip.correcting) {
+            const adj = Math.max(-MAX_TARGET_RATE_DELTA, Math.min(MAX_TARGET_RATE_DELTA, drift / RATE_DRIFT_SPAN_SECONDS));
+            targetRate = 1 - adj;
+            mode = 'rate';
+          } else {
+            targetRate = 1;
+            mode = Math.abs(clip.rate - 1) < RATE_WRITE_EPSILON ? 'locked' : 'rate';
+          }
         }
 
-        if (mode !== 'seek') {
+        if (mode !== 'seek' && (clip.correcting || Math.abs(clip.rate - 1) >= RATE_WRITE_EPSILON || Math.abs(targetRate - 1) >= RATE_WRITE_EPSILON)) {
           applySlewedRate(clip, targetRate, now);
         }
       }
