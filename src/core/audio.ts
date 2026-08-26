@@ -1,12 +1,13 @@
 import { AudioClip, AudioRole, Overlay, Scene, Story, StoryAudio } from './types';
 import { resolveLocalized } from './locale';
 import {
+  AudioSyncMode,
   AudioSyncPhase,
   planAudioSync,
 } from './audio-sync-plan';
 
 function planWantsPlay(
-  mode: AudioSyncDebug['mode'],
+  mode: AudioSyncMode,
   holdMs: number,
   seeking: boolean,
 ): boolean {
@@ -121,58 +122,16 @@ interface ManagedClip {
   element: HTMLAudioElement;
   playLock: Promise<void> | null;
   lastSeekAt: number;
-  lastDrift: number;
-  lastTarget: number;
   lastAssigned: number;
   phase: AudioSyncPhase;
   clockMoved: boolean;
 }
-
-export interface AudioSyncDebug {
-  clipId: string;
-  targetSeconds: number;
-  audioSeconds: number;
-  driftMs: number;
-  ratePercent: number;
-  targetRatePercent: number;
-  seeking: boolean;
-  holdMs: number;
-  mode: 'idle' | 'locked' | 'seek' | 'hold';
-}
-
-export interface AudioSyncLogRow {
-  t: number;
-  event?: string;
-  storyMs: number;
-  playing: boolean;
-  hard: boolean;
-  clipId: string;
-  targetS: number;
-  audioS: number;
-  driftMs: number;
-  ratePct: number;
-  targetRatePct: number;
-  mode: AudioSyncDebug['mode'] | 'idle';
-  holdMs: number;
-  seeking: boolean;
-  readyState: number;
-  paused: boolean;
-  correcting: boolean;
-}
-
-const MAX_SYNC_LOG = 16000;
-const LOG_SAMPLE_MS = 50;
 
 export class AudioEngine {
   private clips: ManagedClip[] = [];
   private muted = false;
   private masterVolume = 1;
   private unlocked = false;
-  private lastDebug: AudioSyncDebug | null = null;
-  private log: AudioSyncLogRow[] = [];
-  private logStartedAt = 0;
-  private lastLogAt = 0;
-  private pendingEvent: string | undefined;
   private holdingStory = false;
 
   configure(specs: NormalizedAudioClip[]): void {
@@ -190,8 +149,6 @@ export class AudioEngine {
         element,
         playLock: null,
         lastSeekAt: 0,
-        lastDrift: 0,
-        lastTarget: 0,
         lastAssigned: 0,
         phase: 'locked',
         clockMoved: false,
@@ -233,9 +190,8 @@ export class AudioEngine {
     }
   }
 
-  sync(storyTimeMs: number, playing: boolean, options: { hard?: boolean; event?: string } = {}): void {
+  sync(storyTimeMs: number, playing: boolean, options: { hard?: boolean } = {}): void {
     const now = performance.now();
-    let reported = false;
     this.holdingStory = false;
 
     for (const clip of this.clips) {
@@ -255,24 +211,19 @@ export class AudioEngine {
         if (clip.element.playbackRate !== 1) {
           clip.element.playbackRate = 1;
         }
-        clip.lastDrift = 0;
-        clip.lastTarget = mediaTime;
         continue;
       }
 
-      let mode: AudioSyncDebug['mode'] = 'locked';
-      let drift = 0;
+      let mode: AudioSyncMode = 'locked';
       let holdLeft = 0;
 
       if (Number.isFinite(mediaTime) && mediaTime >= 0 && clip.element.readyState >= 1) {
         let audioTime = clip.element.currentTime;
-        drift = audioTime - mediaTime;
+        let drift = audioTime - mediaTime;
         if (clip.spec.loop && Number.isFinite(duration) && duration > 0) {
           if (drift > duration / 2) {
-            drift -= duration;
             audioTime -= duration;
           } else if (drift < -duration / 2) {
-            drift += duration;
             audioTime += duration;
           }
         }
@@ -299,9 +250,6 @@ export class AudioEngine {
         if (plan.holdStory) {
           this.holdingStory = true;
         }
-        if (plan.event) {
-          this.markEvent(plan.event);
-        }
 
         if (plan.action === 'seek' && plan.seekTo !== undefined) {
           try {
@@ -312,15 +260,12 @@ export class AudioEngine {
             if (clip.element.playbackRate !== 1) {
               clip.element.playbackRate = 1;
             }
-            drift = clip.element.currentTime - mediaTime;
           } catch {
             mode = 'hold';
           }
         }
       }
 
-      clip.lastDrift = drift;
-      clip.lastTarget = mediaTime;
       clip.element.volume = clip.spec.volume * this.masterVolume;
       clip.element.muted = this.muted;
       const shouldPlay = planWantsPlay(mode, holdLeft, clip.element.seeking);
@@ -337,136 +282,6 @@ export class AudioEngine {
           });
         }
       }
-
-      if (!reported) {
-        reported = true;
-        this.lastDebug = {
-          clipId: clip.spec.id,
-          targetSeconds: mediaTime,
-          audioSeconds: clip.element.currentTime,
-          driftMs: drift * 1000,
-          ratePercent: 100,
-          targetRatePercent: 100,
-          seeking: clip.element.seeking,
-          holdMs: holdLeft,
-          mode,
-        };
-        this.maybeLogSample(now, storyTimeMs, playing, options, clip, mediaTime, drift, mode, holdLeft);
-      }
-    }
-
-    if (!reported) {
-      this.lastDebug = null;
-      this.maybeLogIdle(now, storyTimeMs, playing, options);
-    }
-  }
-
-  private maybeLogSample(
-    now: number,
-    storyTimeMs: number,
-    playing: boolean,
-    options: { hard?: boolean; event?: string },
-    clip: ManagedClip,
-    mediaTime: number,
-    drift: number,
-    mode: AudioSyncDebug['mode'],
-    holdLeft: number,
-  ): void {
-    const event = [this.pendingEvent, options.event].filter(Boolean).join('+') || undefined;
-    this.pendingEvent = undefined;
-    const noteworthy = Boolean(event || options.hard || mode === 'seek' || mode === 'hold');
-    if (!noteworthy && now - this.lastLogAt < LOG_SAMPLE_MS) {
-      return;
-    }
-    this.lastLogAt = now;
-    this.appendLog({
-      t: now,
-      event,
-      storyMs: storyTimeMs,
-      playing,
-      hard: Boolean(options.hard),
-      clipId: clip.spec.id,
-      targetS: mediaTime,
-      audioS: clip.element.currentTime,
-      driftMs: drift * 1000,
-      ratePct: 100,
-      targetRatePct: 100,
-      mode,
-      holdMs: holdLeft,
-      seeking: clip.element.seeking,
-      readyState: clip.element.readyState,
-      paused: clip.element.paused,
-      correcting: false,
-    });
-  }
-
-  private maybeLogIdle(
-    now: number,
-    storyTimeMs: number,
-    playing: boolean,
-    options: { hard?: boolean; event?: string },
-  ): void {
-    const event = [this.pendingEvent, options.event].filter(Boolean).join('+') || undefined;
-    this.pendingEvent = undefined;
-    if (!event && !options.hard && now - this.lastLogAt < LOG_SAMPLE_MS) {
-      return;
-    }
-    this.lastLogAt = now;
-    this.appendLog({
-      t: now,
-      event,
-      storyMs: storyTimeMs,
-      playing,
-      hard: Boolean(options.hard),
-      clipId: '',
-      targetS: storyTimeMs / 1000,
-      audioS: Number.NaN,
-      driftMs: Number.NaN,
-      ratePct: 100,
-      targetRatePct: 100,
-      mode: 'idle',
-      holdMs: 0,
-      seeking: false,
-      readyState: 0,
-      paused: true,
-      correcting: false,
-    });
-  }
-
-  getDebug(): AudioSyncDebug | null {
-    return this.lastDebug;
-  }
-
-  markEvent(event: string): void {
-    this.pendingEvent = this.pendingEvent ? `${this.pendingEvent}+${event}` : event;
-  }
-
-  exportLog(): string {
-    return JSON.stringify({
-      startedAt: this.logStartedAt,
-      exportedAt: performance.now(),
-      sampleHzHint: 1000 / LOG_SAMPLE_MS,
-      rows: this.log,
-    });
-  }
-
-  getLogLength(): number {
-    return this.log.length;
-  }
-
-  clearLog(): void {
-    this.log = [];
-    this.logStartedAt = 0;
-    this.lastLogAt = 0;
-  }
-
-  private appendLog(row: AudioSyncLogRow): void {
-    if (!this.logStartedAt) {
-      this.logStartedAt = row.t;
-    }
-    this.log.push(row);
-    if (this.log.length > MAX_SYNC_LOG) {
-      this.log.splice(0, this.log.length - MAX_SYNC_LOG);
     }
   }
 
@@ -479,6 +294,5 @@ export class AudioEngine {
     }
     this.clips = [];
     this.unlocked = false;
-    this.lastDebug = null;
   }
 }
