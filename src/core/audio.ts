@@ -111,18 +111,36 @@ interface ManagedClip {
   lastSeekAt: number;
   lastDrift: number;
   lastTarget: number;
+  rate: number;
+  lastRateAt: number;
 }
 
-/** Deadband: treat as locked. */
+/** Target rate is 1.0 inside this band. */
 const RATE_DEADBAND_SECONDS = 0.04;
-/** Max |playbackRate - 1| while dragging back to the clock. */
-const MAX_RATE_DELTA = 0.08;
-/** Seconds of drift that rate-corrects in about this many seconds at max delta. */
-const RATE_CATCHUP_SECONDS = 0.8;
+/** Drift that maps to the max target-rate offset (wider = gentler). */
+const RATE_DRIFT_SPAN_SECONDS = 4;
+/** Cap on |target playbackRate - 1|. */
+const MAX_TARGET_RATE_DELTA = 0.12;
+/** How fast the applied rate may move toward the target. */
+const MAX_RATE_CHANGE_PER_SECOND = 0.01;
 /** Only hard-seek for a real jump (scrub / scene skip). */
 const HARD_SEEK_SECONDS = 1.25;
 /** Ignore further seeks after a jump while the decoder settles. */
-const SEEK_HOLD_MS = 800;
+const SEEK_HOLD_MS = 100;
+
+function applySlewedRate(clip: ManagedClip, targetRate: number, now: number): void {
+  const previous = clip.lastRateAt || now;
+  const dt = Math.max(0, Math.min(0.25, (now - previous) / 1000));
+  clip.lastRateAt = now;
+  const maxStep = MAX_RATE_CHANGE_PER_SECOND * dt;
+  const delta = targetRate - clip.rate;
+  const step = Math.max(-maxStep, Math.min(maxStep, delta));
+  clip.rate += step;
+  if (Math.abs(clip.rate - 1) < 0.0002 && Math.abs(targetRate - 1) < 0.0002) {
+    clip.rate = 1;
+  }
+  clip.element.playbackRate = clip.rate;
+}
 
 export interface AudioSyncDebug {
   clipId: string;
@@ -130,6 +148,7 @@ export interface AudioSyncDebug {
   audioSeconds: number;
   driftMs: number;
   ratePercent: number;
+  targetRatePercent: number;
   seeking: boolean;
   holdMs: number;
   mode: 'idle' | 'locked' | 'rate' | 'seek' | 'hold';
@@ -152,7 +171,7 @@ export class AudioEngine {
       element.playbackRate = 1;
       element.volume = spec.volume * this.masterVolume;
       element.muted = this.muted;
-      return { spec, element, playLock: null, lastSeekAt: 0, lastDrift: 0, lastTarget: 0 };
+      return { spec, element, playLock: null, lastSeekAt: 0, lastDrift: 0, lastTarget: 0, rate: 1, lastRateAt: 0 };
     });
   }
 
@@ -202,6 +221,8 @@ export class AudioEngine {
         if (!clip.element.paused) {
           clip.element.pause();
         }
+        clip.rate = 1;
+        clip.lastRateAt = now;
         clip.element.playbackRate = 1;
         clip.lastDrift = 0;
         clip.lastTarget = mediaTime;
@@ -210,6 +231,7 @@ export class AudioEngine {
 
       let mode: AudioSyncDebug['mode'] = 'locked';
       let drift = 0;
+      let targetRate = 1;
       const holdLeft = Math.max(0, SEEK_HOLD_MS - (now - clip.lastSeekAt));
 
       if (Number.isFinite(mediaTime) && mediaTime >= 0 && clip.element.readyState >= 1) {
@@ -223,23 +245,30 @@ export class AudioEngine {
         if (shouldHard && holdLeft <= 0) {
           try {
             clip.element.currentTime = mediaTime;
+            clip.rate = 1;
+            clip.lastRateAt = now;
             clip.element.playbackRate = 1;
             clip.lastSeekAt = now;
             drift = 0;
+            targetRate = 1;
             mode = 'seek';
           } catch {
             mode = 'hold';
           }
         } else if (holdLeft > 0) {
-          clip.element.playbackRate = 1;
+          targetRate = 1;
           mode = 'hold';
         } else if (Math.abs(drift) <= RATE_DEADBAND_SECONDS) {
-          clip.element.playbackRate = 1;
-          mode = 'locked';
+          targetRate = 1;
+          mode = Math.abs(clip.rate - 1) < 0.0005 ? 'locked' : 'rate';
         } else {
-          const adj = Math.max(-MAX_RATE_DELTA, Math.min(MAX_RATE_DELTA, drift / RATE_CATCHUP_SECONDS));
-          clip.element.playbackRate = 1 - adj;
+          const adj = Math.max(-MAX_TARGET_RATE_DELTA, Math.min(MAX_TARGET_RATE_DELTA, drift / RATE_DRIFT_SPAN_SECONDS));
+          targetRate = 1 - adj;
           mode = 'rate';
+        }
+
+        if (mode !== 'seek') {
+          applySlewedRate(clip, targetRate, now);
         }
       }
 
@@ -265,7 +294,8 @@ export class AudioEngine {
           targetSeconds: mediaTime,
           audioSeconds: clip.element.currentTime,
           driftMs: drift * 1000,
-          ratePercent: clip.element.playbackRate * 100,
+          ratePercent: clip.rate * 100,
+          targetRatePercent: targetRate * 100,
           seeking: clip.element.seeking,
           holdMs: holdLeft,
           mode,

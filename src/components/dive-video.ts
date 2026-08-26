@@ -919,7 +919,7 @@ export class DiveVideo extends LitElement {
       `target ${debug.targetSeconds.toFixed(3)}s`,
       `play   ${debug.audioSeconds.toFixed(3)}s`,
       `drift  ${sign}${debug.driftMs.toFixed(0)} ms`,
-      `rate   ${debug.ratePercent.toFixed(1)}%`,
+      `rate   ${debug.ratePercent.toFixed(2)}%  (target ${debug.targetRatePercent.toFixed(2)}%)`,
       debug.holdMs > 0 ? `hold   ${debug.holdMs.toFixed(0)} ms` : '',
       debug.seeking ? 'decoder seeking' : '',
     ].filter(Boolean).join('\n');
