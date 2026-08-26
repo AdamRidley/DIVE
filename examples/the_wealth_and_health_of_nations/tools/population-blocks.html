@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Population Blocks</title>
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="./dive-lang.js"></script>
   <style>
     :root {
       --bg-1: #09120f;
@@ -127,8 +128,8 @@
 <body>
   <div id="chart"></div>
   <div class="title">
-    <h1>Population Blocks: The Modern Distribution</h1>
-    <p>Treemap of world population around 2020. Click a continent to zoom in.</p>
+    <h1 id="blocks-title">Population Blocks: The Modern Distribution</h1>
+    <p id="blocks-subtitle">Treemap of world population around 2020. Click a continent to zoom in.</p>
   </div>
   <button id="back" class="back-btn">Back to World</button>
   <div id="tooltip" class="tooltip"></div>
@@ -287,7 +288,7 @@
         .style('opacity', 1)
         .style('left', `${Math.min(event.offsetX + 14, root.node().clientWidth - 220)}px`)
         .style('top', `${Math.max(8, event.offsetY - 32)}px`)
-        .html(`<strong>${label}</strong><br/>Population: ${formatPopulation(value)}`);
+        .html(`<strong>${label}</strong><br/>${diveT('blocksPopulation')}: ${formatPopulation(value)}`);
     }
 
     function hideTooltip() {
@@ -636,6 +637,17 @@
       render(latestState.view || 'world', 0);
       applyHighlight();
     });
+
+    function applyCopy() {
+      document.title = diveT('blocksTitle');
+      const title = document.getElementById('blocks-title');
+      const subtitle = document.getElementById('blocks-subtitle');
+      if (title) title.textContent = diveT('blocksTitle');
+      if (subtitle) subtitle.textContent = diveT('blocksSubtitle');
+      backButton.text(diveT('blocksBack'));
+    }
+    window.addEventListener('dive-lang', applyCopy);
+    applyCopy();
 
     window.addEventListener('message', (event) => {
       const payload = event.data;

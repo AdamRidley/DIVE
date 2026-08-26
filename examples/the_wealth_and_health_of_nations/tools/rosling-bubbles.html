@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Rosling Bubbles</title>
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="./dive-lang.js"></script>
   <style>
     :root {
       --bg: #fdf7ef;
@@ -190,7 +191,7 @@
   <div id="tooltip" class="tooltip"></div>
   <div id="legend" class="legend"></div>
   <div id="year-controls" class="year-controls">
-    <label class="label">Explore Year: <strong id="year-readout">2020</strong></label>
+    <label class="label"><span id="year-label">Explore Year</span>: <strong id="year-readout">2020</strong></label>
     <input id="year-slider" type="range" min="1950" max="2020" step="0.1" value="2020" />
   </div>
 
@@ -467,13 +468,13 @@
         .attr('y', height - margin.bottom - 10)
         .text(currentYear);
 
-      svg.append('text').attr('class', 'title').attr('x', margin.left).attr('y', 30).text('Rosling Bubbles: Health vs Wealth');
+      svg.append('text').attr('class', 'title').attr('x', margin.left).attr('y', 30).text(diveT('bubblesTitle'));
       svg
         .append('text')
         .attr('class', 'subtitle')
         .attr('x', margin.left)
         .attr('y', 49)
-        .text('Income per person (log scale), life expectancy, and population by country');
+        .text(diveT('bubblesSubtitle'));
 
       svg
         .append('text')
@@ -481,7 +482,7 @@
         .attr('x', width - margin.right)
         .attr('y', height - 12)
         .attr('text-anchor', 'end')
-        .text('Income per person (PPP, inflation-adjusted)');
+        .text(diveT('bubblesX'));
 
       svg
         .append('text')
@@ -490,7 +491,7 @@
         .attr('x', -height / 2)
         .attr('y', 18)
         .attr('text-anchor', 'middle')
-        .text('Life expectancy (years)');
+        .text(diveT('bubblesY'));
 
       drawLegend();
     }
@@ -887,6 +888,26 @@
       if (!dataModel) return;
       setupSvg();
       renderYear(false);
+    });
+
+    function applyCopy() {
+      document.title = diveT('bubblesTitle');
+      d3.select('#year-label').text(diveT('bubblesYear'));
+      if (typeof svg !== 'undefined' && svg) {
+        svg.select('.title').text(diveT('bubblesTitle'));
+        svg.select('text.subtitle').text(diveT('bubblesSubtitle'));
+        svg.selectAll('text.subtitle').each(function (_, i) {
+          // first subtitle is the chart subtitle; axis labels have extra attrs
+        });
+      }
+    }
+    window.addEventListener('dive-lang', () => {
+      document.title = diveT('bubblesTitle');
+      d3.select('#year-label').text(diveT('bubblesYear'));
+      if (dataModel) {
+        setupSvg();
+        renderYear(false);
+      }
     });
 
     window.addEventListener('message', (event) => {

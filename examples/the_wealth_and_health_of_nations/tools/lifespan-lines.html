@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Lifespan Lines</title>
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="./dive-lang.js"></script>
   <style>
     :root {
       --bg-1: #08111f;
@@ -94,6 +95,24 @@
       pointer-events: none;
     }
 
+    .lang-picker {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 5;
+      display: none;
+      gap: 10px;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: rgba(4, 14, 26, 0.88);
+      border: 1px solid rgba(214, 236, 255, 0.28);
+      font-size: 13px;
+      color: var(--fg);
+    }
+    .lang-picker.visible { display: flex; }
+    .lang-picker label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+
     .tooltip {
       position: absolute;
       pointer-events: none;
@@ -112,6 +131,7 @@
 </head>
 <body>
   <div id="chart"></div>
+  <div id="lang-picker" class="lang-picker"></div>
   <div id="tooltip" class="tooltip"></div>
 
   <script>
@@ -272,14 +292,14 @@
         .attr('class', 'title')
         .attr('x', margin.left)
         .attr('y', 30)
-        .text('Lifespan Lines: Life Expectancy by Continent');
+        .text(diveT('lifespanTitle'));
 
       svg
         .append('text')
         .attr('class', 'subtitle')
         .attr('x', margin.left)
         .attr('y', 49)
-        .text('Population-weighted averages from Gapminder data');
+        .text(diveT('lifespanSubtitle'));
 
       legendGroup = svg.append('g').attr('class', 'legend').attr('transform', `translate(${margin.left},${height - 16})`);
 
@@ -329,7 +349,7 @@
         .attr('x', -height / 2)
         .attr('y', 18)
         .attr('text-anchor', 'middle')
-        .text('Life Expectancy (years)');
+        .text(diveT('lifespanY'));
 
       const xLabel = svg.selectAll('.x-label').data([0]);
       xLabel
@@ -338,7 +358,7 @@
         .attr('x', width - margin.right)
         .attr('y', height - 10)
         .attr('text-anchor', 'end')
-        .text('Year');
+        .text(diveT('lifespanX'));
     }
 
     function drawLegend() {
@@ -443,7 +463,7 @@
         .append('text')
         .attr('x', x(year) + 8)
         .attr('y', yTop + 12)
-        .text('1918 pandemic + global conflict era');
+        .text(diveT('lifespanAnnotation'));
 
       annotationGroup.style('opacity', 1);
     }
@@ -502,6 +522,38 @@
       tooltip.style('opacity', 0);
     }
 
+    function renderLangPicker() {
+      const el = document.getElementById('lang-picker');
+      if (!el) return;
+      el.classList.toggle('visible', Boolean(currentState.showLanguagePicker));
+      if (!currentState.showLanguagePicker) {
+        return;
+      }
+      const lang = diveGetLang();
+      el.innerHTML = `
+        <span>${diveT('langLegend')}</span>
+        <label><input type="radio" name="dive-lang" value="en" ${lang === 'en' ? 'checked' : ''}> ${diveT('langEnglish')}</label>
+        <label><input type="radio" name="dive-lang" value="cy" ${lang === 'cy' ? 'checked' : ''}> ${diveT('langWelsh')}</label>
+      `;
+      el.querySelectorAll('input').forEach((input) => {
+        input.addEventListener('change', () => divePostLang(input.value));
+      });
+    }
+
+    function applyCopy() {
+      document.title = diveT('lifespanTitle');
+      if (svg) {
+        svg.select('.title').text(diveT('lifespanTitle'));
+        svg.select('text.subtitle:not(.y-label):not(.x-label)').text(diveT('lifespanSubtitle'));
+        svg.select('.y-label').text(diveT('lifespanY'));
+        svg.select('.x-label').text(diveT('lifespanX'));
+        renderAnnotation();
+      }
+      renderLangPicker();
+    }
+
+    window.addEventListener('dive-lang', applyCopy);
+
     function applyState(nextState, timeMs) {
       if (!chartData) return;
 
@@ -519,6 +571,7 @@
       currentDisplayYear = resolveDisplayYear(currentTimelineTimeMs);
 
       renderLines();
+      renderLangPicker();
     }
 
     function initialize(data) {
