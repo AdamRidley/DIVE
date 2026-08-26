@@ -1,5 +1,8 @@
 {
-  "title": "The Wealth and Health of Nations",
+  "title": {
+    "en": "The Wealth and Health of Nations",
+    "cy": "Cyfoeth ac Iechyd y Cenhedloedd"
+  },
   "duration": 110000,
   "aspectRatio": "16:9",
   "audio": {
@@ -118,7 +121,8 @@
             "streamTime": true,
             "segmentStartTimeMs": 0,
             "segmentEndTimeMs": 10000,
-            "pauseOnInteract": false
+            "pauseOnInteract": false,
+            "showLanguagePicker": true
           }
         },
         {
@@ -167,7 +171,10 @@
           "time": 0,
           "duration": 10000,
           "type": "text",
-          "content": "In 1800, global life expectancy was roughly 30 years old.",
+          "content": {
+            "en": "In 1800, global life expectancy was roughly 30 years old.",
+            "cy": "Yn 1800, roedd disgwyliad oes byd-eang tua 30 oed."
+          },
           "placement": {
             "anchor": "top",
             "offsetY": "70px"
@@ -177,7 +184,10 @@
           "time": 10000,
           "duration": 10000,
           "type": "text",
-          "content": "Progress was interrupted by pandemics and conflicts. The 1918 shock is visible across regions.",
+          "content": {
+            "en": "Progress was interrupted by pandemics and conflicts. The 1918 shock is visible across regions.",
+            "cy": "Tarfwyd ar gynnydd gan bandemigau a gwrthdaro. Mae sioc 1918 i’w gweld ar draws rhanbarthau."
+          },
           "placement": {
             "anchor": "topLeft",
             "offset": "70px"
@@ -187,7 +197,10 @@
           "time": 20000,
           "duration": 5000,
           "type": "text",
-          "content": "After 1950, progress accelerates and life expectancy climbs toward modern levels.",
+          "content": {
+            "en": "After 1950, progress accelerates and life expectancy climbs toward modern levels.",
+            "cy": "Ar ôl 1950, mae cynnydd yn cyflymu a disgwyliad oes yn dringo tuag at lefelau modern."
+          },
           "placement": {
             "anchor": "top",
             "offsetY": "70px"
@@ -197,7 +210,10 @@
           "time": 25000,
           "duration": 5000,
           "type": "text",
-          "content": "Click to pause and inspect any region trend.",
+          "content": {
+            "en": "Click to pause and inspect any region trend.",
+            "cy": "Cliciwch i oedi ac archwilio tuedd unrhyw ranbarth."
+          },
           "placement": {
             "anchor": "top",
             "offsetY": "70px"
@@ -238,8 +254,14 @@
             "segmentStartTimeMs": 45000,
             "segmentEndTimeMs": 60000,
             "dimOthers": true,
-            "focusCountries": ["chn", "ind"],
-            "selectedCountries": ["chn", "ind"],
+            "focusCountries": [
+              "chn",
+              "ind"
+            ],
+            "selectedCountries": [
+              "chn",
+              "ind"
+            ],
             "pulse": false,
             "yearSlider": false,
             "pauseOnInteract": true
@@ -263,7 +285,10 @@
           "time": 0,
           "duration": 15000,
           "type": "text",
-          "content": "Health and wealth are deeply connected. In 1950, most countries cluster in the bottom-left.",
+          "content": {
+            "en": "Health and wealth are deeply connected. In 1950, most countries cluster in the bottom-left.",
+            "cy": "Mae iechyd a chyfoeth yn gysylltiedig. Yn 1950, mae’r rhan fwyaf o wledydd yn y gwaelod-chwith."
+          },
           "placement": {
             "anchor": "topLeft",
             "offset": "70px"
@@ -273,7 +298,10 @@
           "time": 15000,
           "duration": 15000,
           "type": "text",
-          "content": "Watch the rapid ascent of China and India as the world catches up.",
+          "content": {
+            "en": "Watch the rapid ascent of China and India as the world catches up.",
+            "cy": "Gwyliwch esgyniad cyflym Tsieina a’r India wrth i’r byd ddal i fyny."
+          },
           "placement": {
             "anchor": "bottom",
             "offsetY": "-70px"
@@ -283,7 +311,10 @@
           "time": 30000,
           "duration": 15000,
           "type": "text",
-          "content": "By 2020, the world is far healthier and richer. Pause to explore and click bubbles to trace paths.",
+          "content": {
+            "en": "By 2020, the world is far healthier and richer. Pause to explore and click bubbles to trace paths.",
+            "cy": "Erbyn 2020, mae’r byd yn iachach ac yn gyfoethocach. Oedwch i archwilio a chlicio swigod i olrhain llwybrau."
+          },
           "placement": {
             "anchor": "bottom",
             "offsetY": "-70px"
@@ -359,7 +390,10 @@
           "time": 0,
           "duration": 12000,
           "type": "text",
-          "content": "A healthier world led to a population boom. Today, the global population is distributed like this.",
+          "content": {
+            "en": "A healthier world led to a population boom. Today, the global population is distributed like this.",
+            "cy": "Arweiniodd byd iachach at ffrwydrad poblogaeth. Dyma ddosbarthiad poblogaeth y byd heddiw."
+          },
           "placement": {
             "anchor": "bottom"
           }
@@ -368,7 +402,10 @@
           "time": 12000,
           "duration": 11000,
           "type": "text",
-          "content": "Asia is home to more than half of humanity, anchored by the scale of China and India.",
+          "content": {
+            "en": "Asia is home to more than half of humanity, anchored by the scale of China and India.",
+            "cy": "Mae Asia yn gartref i fwy na hanner dynoliaeth, wedi’i hangori gan raddfa Tsieina a’r India."
+          },
           "placement": {
             "anchor": "bottom"
           }
@@ -377,7 +414,10 @@
           "time": 23000,
           "duration": 7000,
           "type": "text",
-          "content": "Where people live shapes demand, infrastructure pressure, and long-run development pathways.",
+          "content": {
+            "en": "Where people live shapes demand, infrastructure pressure, and long-run development pathways.",
+            "cy": "Mae ble mae pobl yn byw yn siapio galw, pwysau seilwaith, a llwybrau datblygu hirdymor."
+          },
           "placement": {
             "anchor": "bottom"
           }
@@ -386,11 +426,100 @@
           "time": 30000,
           "duration": 5000,
           "type": "text",
-          "content": "Click any continent to navigate. Interaction will pause playback.",
+          "content": {
+            "en": "Click any continent to navigate. Interaction will pause playback.",
+            "cy": "Cliciwch unrhyw gyfandir i lywio. Bydd rhyngweithio yn oedi chwarae."
+          },
           "placement": {
             "anchor": "bottom"
           },
           "hideWhenPaused": true
+        }
+      ]
+    }
+  ],
+  "languages": [
+    {
+      "code": "en",
+      "label": "English",
+      "default": true
+    },
+    {
+      "code": "cy",
+      "label": "Cymraeg"
+    }
+  ],
+  "captions": [
+    {
+      "srclang": "en",
+      "label": "English",
+      "default": true,
+      "cues": [
+        {
+          "startTime": 0,
+          "endTime": 10000,
+          "text": "In 1800, global life expectancy was roughly 30 years."
+        },
+        {
+          "startTime": 10000,
+          "endTime": 20000,
+          "text": "The 1918 shock is visible across regions."
+        },
+        {
+          "startTime": 20000,
+          "endTime": 30000,
+          "text": "After 1950, life expectancy climbs toward modern levels."
+        },
+        {
+          "startTime": 30000,
+          "endTime": 45000,
+          "text": "In 1950 most countries cluster at low income and low life expectancy."
+        },
+        {
+          "startTime": 45000,
+          "endTime": 75000,
+          "text": "China and India rise as the world grows healthier and richer."
+        },
+        {
+          "startTime": 75000,
+          "endTime": 110000,
+          "text": "A healthier world led to a population boom, especially in Asia."
+        }
+      ]
+    },
+    {
+      "srclang": "cy",
+      "label": "Cymraeg",
+      "cues": [
+        {
+          "startTime": 0,
+          "endTime": 10000,
+          "text": "Yn 1800, roedd disgwyliad oes byd-eang tua 30 oed."
+        },
+        {
+          "startTime": 10000,
+          "endTime": 20000,
+          "text": "Mae sioc 1918 i’w gweld ar draws rhanbarthau."
+        },
+        {
+          "startTime": 20000,
+          "endTime": 30000,
+          "text": "Ar ôl 1950, mae disgwyliad oes yn dringo tuag at lefelau modern."
+        },
+        {
+          "startTime": 30000,
+          "endTime": 45000,
+          "text": "Yn 1950 mae’r rhan fwyaf o wledydd yn ymglymu ar incwm isel a disgwyliad oes isel."
+        },
+        {
+          "startTime": 45000,
+          "endTime": 75000,
+          "text": "Mae Tsieina a’r India yn esgyn wrth i’r byd dyfu’n iachach ac yn gyfoethocach."
+        },
+        {
+          "startTime": 75000,
+          "endTime": 110000,
+          "text": "Arweiniodd byd iachach at ffrwydrad poblogaeth, yn enwedig yn Asia."
         }
       ]
     }
