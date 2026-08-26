@@ -22,7 +22,7 @@ export type {
   AudioRole,
   UiMode,
 } from './core/types';
-export { parseAspectRatio, DEFAULT_ASPECT } from './core/aspect';
+export { parseAspectRatio, containSize, DEFAULT_ASPECT } from './core/aspect';
 export { parseVtt, cuesAtTime, captionTracksForLocale } from './core/captions';
 export { resolveLocalized, resolvePlayerLanguage, DEFAULT_LANGUAGE } from './core/locale';
 export { readDiveUrlState, writeDiveUrlState } from './core/url-state';

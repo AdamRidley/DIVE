@@ -7,7 +7,7 @@ import { D3ScatterplotAdapter } from '../adapters/D3ScatterplotAdapter';
 import { D3MapAdapter } from '../adapters/D3MapAdapter';
 import { IframeAdapter } from '../adapters/IframeAdapter';
 
-import { aspectCss, parseAspectRatio } from '../core/aspect';
+import { aspectCss, containSize, parseAspectRatio } from '../core/aspect';
 import { stageSize } from '../core/stage';
 import { AudioEngine, collectStoryAudio, filterAudioClips } from '../core/audio';
 import { captionTracksForLocale, cuesAtTime, resolveCaptionTracks, ResolvedCaptionTrack } from '../core/captions';
@@ -62,6 +62,7 @@ export class DiveVideo extends LitElement {
 
   @query('#canvas-container') private canvasContainer!: HTMLElement;
   @query('.video-ratio-wrapper') private ratioWrapper?: HTMLElement;
+  @query('.video-section') private videoSection?: HTMLElement;
 
   private sequencer: Sequencer | null = null;
   private activeAdapter: IAdapter | null = null;
@@ -116,14 +117,19 @@ export class DiveVideo extends LitElement {
     :host([ui-mode="inset"]) .video-section {
       position: relative;
       inset: auto;
+      min-width: 0;
       min-height: 0;
+      width: 100%;
+      height: 100%;
     }
     .video-ratio-wrapper {
       position: relative;
       overflow: hidden;
+      flex: none;
+      background: #000;
       aspect-ratio: var(--aspect-ratio, 9 / 16);
-      width: min(100cqw, calc(100cqh * var(--ar-w, 9) / var(--ar-h, 16)));
-      height: min(100cqh, calc(100cqw * var(--ar-h, 16) / var(--ar-w, 9)));
+      max-width: 100%;
+      max-height: 100%;
     }
     #canvas-container {
       width: var(--stage-w, 1920px);
@@ -480,6 +486,7 @@ export class DiveVideo extends LitElement {
     if (this.getAttribute('ui-mode') !== mode) {
       this.setAttribute('ui-mode', mode);
     }
+    this.applyStageScale();
   }
 
   disconnectedCallback(): void {
@@ -557,22 +564,34 @@ export class DiveVideo extends LitElement {
   }
 
   private observeStage() {
-    if (this.ratioWrapper && this.stageObserver) {
-      this.stageObserver.observe(this.ratioWrapper);
+    if (!this.stageObserver) {
+      return;
+    }
+    this.stageObserver.disconnect();
+    const cell = this.videoSection || this.ratioWrapper;
+    if (cell) {
+      this.stageObserver.observe(cell);
       this.applyStageScale();
     }
   }
 
   private applyStageScale() {
     const wrap = this.ratioWrapper;
-    if (!wrap) {
+    const cell = this.videoSection || wrap;
+    if (!wrap || !cell) {
       return;
     }
-    const stage = stageSize(parseAspectRatio(this.story?.aspectRatio));
-    const scale = wrap.clientWidth / stage.width;
+    const aspect = parseAspectRatio(this.story?.aspectRatio);
+    const fitted = containSize(cell.clientWidth, cell.clientHeight, aspect);
+    if (!(fitted.width > 0) || !(fitted.height > 0)) {
+      return;
+    }
+    const stage = stageSize(aspect);
+    wrap.style.width = `${fitted.width}px`;
+    wrap.style.height = `${fitted.height}px`;
     wrap.style.setProperty('--stage-w', `${stage.width}px`);
     wrap.style.setProperty('--stage-h', `${stage.height}px`);
-    wrap.style.setProperty('--stage-scale', String(scale || 1));
+    wrap.style.setProperty('--stage-scale', String(fitted.width / stage.width));
   }
 
   private async loadStory(url: string) {
