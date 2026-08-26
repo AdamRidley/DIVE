@@ -108,16 +108,39 @@ interface ManagedClip {
   spec: NormalizedAudioClip;
   element: HTMLAudioElement;
   playLock: Promise<void> | null;
+  lastSeekAt: number;
+  lastDrift: number;
+  lastTarget: number;
 }
 
-const SYNC_SLOP_SECONDS = 0.35;
-const LOOP_SYNC_SLOP_SECONDS = 0.5;
+/** Deadband: treat as locked. */
+const RATE_DEADBAND_SECONDS = 0.04;
+/** Max |playbackRate - 1| while dragging back to the clock. */
+const MAX_RATE_DELTA = 0.08;
+/** Seconds of drift that rate-corrects in about this many seconds at max delta. */
+const RATE_CATCHUP_SECONDS = 0.8;
+/** Only hard-seek for a real jump (scrub / scene skip). */
+const HARD_SEEK_SECONDS = 1.25;
+/** Ignore further seeks after a jump while the decoder settles. */
+const SEEK_HOLD_MS = 800;
+
+export interface AudioSyncDebug {
+  clipId: string;
+  targetSeconds: number;
+  audioSeconds: number;
+  driftMs: number;
+  ratePercent: number;
+  seeking: boolean;
+  holdMs: number;
+  mode: 'idle' | 'locked' | 'rate' | 'seek' | 'hold';
+}
 
 export class AudioEngine {
   private clips: ManagedClip[] = [];
   private muted = false;
   private masterVolume = 1;
   private unlocked = false;
+  private lastDebug: AudioSyncDebug | null = null;
 
   configure(specs: NormalizedAudioClip[]): void {
     this.dispose();
@@ -126,9 +149,10 @@ export class AudioEngine {
       element.preload = 'auto';
       element.src = spec.src;
       element.loop = spec.loop;
+      element.playbackRate = 1;
       element.volume = spec.volume * this.masterVolume;
       element.muted = this.muted;
-      return { spec, element, playLock: null };
+      return { spec, element, playLock: null, lastSeekAt: 0, lastDrift: 0, lastTarget: 0 };
     });
   }
 
@@ -162,7 +186,10 @@ export class AudioEngine {
     }
   }
 
-  sync(storyTimeMs: number, playing: boolean): void {
+  sync(storyTimeMs: number, playing: boolean, options: { hard?: boolean } = {}): void {
+    const now = performance.now();
+    let reported = false;
+
     for (const clip of this.clips) {
       const active = playing && storyTimeMs >= clip.spec.startTime && storyTimeMs < clip.spec.endTime;
       let mediaTime = (storyTimeMs - clip.spec.startTime + clip.spec.offset) / 1000;
@@ -175,25 +202,49 @@ export class AudioEngine {
         if (!clip.element.paused) {
           clip.element.pause();
         }
+        clip.element.playbackRate = 1;
+        clip.lastDrift = 0;
+        clip.lastTarget = mediaTime;
         continue;
       }
 
+      let mode: AudioSyncDebug['mode'] = 'locked';
+      let drift = 0;
+      const holdLeft = Math.max(0, SEEK_HOLD_MS - (now - clip.lastSeekAt));
+
       if (Number.isFinite(mediaTime) && mediaTime >= 0 && clip.element.readyState >= 1) {
-        const slop = clip.spec.loop ? LOOP_SYNC_SLOP_SECONDS : SYNC_SLOP_SECONDS;
-        let drift = clip.element.currentTime - mediaTime;
+        drift = clip.element.currentTime - mediaTime;
         if (clip.spec.loop && Number.isFinite(duration) && duration > 0) {
           if (drift > duration / 2) drift -= duration;
           if (drift < -duration / 2) drift += duration;
         }
-        if (Math.abs(drift) > slop) {
+
+        const shouldHard = options.hard || Math.abs(drift) >= HARD_SEEK_SECONDS;
+        if (shouldHard && holdLeft <= 0) {
           try {
             clip.element.currentTime = mediaTime;
+            clip.element.playbackRate = 1;
+            clip.lastSeekAt = now;
+            drift = 0;
+            mode = 'seek';
           } catch {
-            // Some browsers reject seeks before metadata; try again next tick.
+            mode = 'hold';
           }
+        } else if (holdLeft > 0) {
+          clip.element.playbackRate = 1;
+          mode = 'hold';
+        } else if (Math.abs(drift) <= RATE_DEADBAND_SECONDS) {
+          clip.element.playbackRate = 1;
+          mode = 'locked';
+        } else {
+          const adj = Math.max(-MAX_RATE_DELTA, Math.min(MAX_RATE_DELTA, drift / RATE_CATCHUP_SECONDS));
+          clip.element.playbackRate = 1 - adj;
+          mode = 'rate';
         }
       }
 
+      clip.lastDrift = drift;
+      clip.lastTarget = mediaTime;
       clip.element.volume = clip.spec.volume * this.masterVolume;
       clip.element.muted = this.muted;
       if (clip.element.paused && !clip.playLock) {
@@ -206,16 +257,40 @@ export class AudioEngine {
           });
         }
       }
+
+      if (!reported) {
+        reported = true;
+        this.lastDebug = {
+          clipId: clip.spec.id,
+          targetSeconds: mediaTime,
+          audioSeconds: clip.element.currentTime,
+          driftMs: drift * 1000,
+          ratePercent: clip.element.playbackRate * 100,
+          seeking: clip.element.seeking,
+          holdMs: holdLeft,
+          mode,
+        };
+      }
     }
+
+    if (!reported) {
+      this.lastDebug = null;
+    }
+  }
+
+  getDebug(): AudioSyncDebug | null {
+    return this.lastDebug;
   }
 
   dispose(): void {
     for (const clip of this.clips) {
       clip.element.pause();
+      clip.element.playbackRate = 1;
       clip.element.removeAttribute('src');
       clip.element.load();
     }
     this.clips = [];
     this.unlocked = false;
+    this.lastDebug = null;
   }
 }

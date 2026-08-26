@@ -9,7 +9,7 @@ import { IframeAdapter } from '../adapters/IframeAdapter';
 
 import { aspectCss, containSize, parseAspectRatio } from '../core/aspect';
 import { stageSize } from '../core/stage';
-import { AudioEngine, collectStoryAudio, filterAudioClips } from '../core/audio';
+import { AudioEngine, AudioSyncDebug, collectStoryAudio, filterAudioClips } from '../core/audio';
 import { captionTracksForLocale, cuesAtTime, resolveCaptionTracks, ResolvedCaptionTrack } from '../core/captions';
 import { filesForScene, loadDivePack, looksLikeDiveUrl, openDivePack, shouldLoadAsDive, DivePackSession } from '../core/dive-pack';
 import { listedLanguages, resolveLocalized, resolvePlayerLanguage, storeLanguage } from '../core/locale';
@@ -57,8 +57,11 @@ export class DiveVideo extends LitElement {
   @state() private hasStarted = false;
   @state() private sceneReady = true;
   @state() private toolFading = false;
+  @state() private audioDebugEnabled = false;
+  @state() private audioDebug: AudioSyncDebug | null = null;
   private playWhenReady = false;
   private toolReadyTimer = 0;
+  private audioHardSeek = false;
 
   @query('#canvas-container') private canvasContainer!: HTMLElement;
   @query('.video-ratio-wrapper') private ratioWrapper?: HTMLElement;
@@ -244,6 +247,21 @@ export class DiveVideo extends LitElement {
       border-radius: 8px;
       max-width: 40%;
       transition: opacity 0.3s;
+    }
+    .audio-debug {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      z-index: 9;
+      pointer-events: none;
+      font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #d7ffe4;
+      background: rgba(0, 0, 0, 0.72);
+      border: 1px solid rgba(215, 255, 228, 0.25);
+      border-radius: 6px;
+      padding: 6px 8px;
+      white-space: pre;
+      text-align: left;
     }
     .captions {
       position: absolute;
@@ -857,6 +875,7 @@ export class DiveVideo extends LitElement {
     this.settingsOpen = false;
     this.chaptersOpen = false;
     if (this.currentTime >= (this.story?.duration || 0)) {
+      this.audioHardSeek = true;
       this.sequencer.seek(0);
     }
     this.sequencer.play();
@@ -880,12 +899,30 @@ export class DiveVideo extends LitElement {
   }
 
   private syncMedia(timeMs: number) {
-    this.audioEngine.sync(timeMs, this.isPlaying);
+    const hard = this.audioHardSeek;
+    this.audioHardSeek = false;
+    this.audioEngine.sync(timeMs, this.isPlaying, { hard });
+    if (this.audioDebugEnabled) {
+      this.audioDebug = this.audioEngine.getDebug();
+    }
     const tracks = captionTracksForLocale(this.captionTracks, this.playerLang, {
       captions: this.captionsEnabled,
       descriptions: this.descriptionsEnabled,
     });
     this.activeCues = tracks.flatMap((track) => cuesAtTime(track.cues, timeMs));
+  }
+
+  private formatAudioDebug(debug: AudioSyncDebug): string {
+    const sign = debug.driftMs >= 0 ? '+' : '';
+    return [
+      `audio ${debug.mode}`,
+      `target ${debug.targetSeconds.toFixed(3)}s`,
+      `play   ${debug.audioSeconds.toFixed(3)}s`,
+      `drift  ${sign}${debug.driftMs.toFixed(0)} ms`,
+      `rate   ${debug.ratePercent.toFixed(1)}%`,
+      debug.holdMs > 0 ? `hold   ${debug.holdMs.toFixed(0)} ms` : '',
+      debug.seeking ? 'decoder seeking' : '',
+    ].filter(Boolean).join('\n');
   }
 
   private toggleMute() {
@@ -921,6 +958,7 @@ export class DiveVideo extends LitElement {
 
     this.lastVisualState = null; // Force snapback on scrub
     this.ended = false;
+    this.audioHardSeek = true;
     this.sequencer.seek(timeMs);
   }
 
@@ -1043,6 +1081,7 @@ export class DiveVideo extends LitElement {
     this.chaptersOpen = false;
     this.ended = false;
     this.lastVisualState = null;
+    this.audioHardSeek = true;
     this.sequencer.seek(scene.startTime);
   }
 
@@ -1053,6 +1092,7 @@ export class DiveVideo extends LitElement {
     this.ended = false;
     this.hasStarted = true;
     this.lastVisualState = null;
+    this.audioHardSeek = true;
     this.sequencer.seek(0);
     this.audioEngine.unlock();
     this.sequencer.play();
@@ -1160,6 +1200,7 @@ export class DiveVideo extends LitElement {
     }
     this.lastVisualState = null;
     this.ended = false;
+    this.audioHardSeek = true;
     this.sequencer.seek(this.currentTime + deltaMs);
   }
 
@@ -1319,7 +1360,7 @@ export class DiveVideo extends LitElement {
     const showLang = this.showLanguagePicker();
     const poster = this.story.poster && !this.hasStarted ? this.story.poster : null;
     const title = resolveLocalized(this.story.title, this.playerLang);
-    const hasSettings = showLang || hasCaptions || hasDescriptions;
+    const hasSettings = true;
     const chromeMode = this.activeUiMode();
     const chromeHidden = chromeMode === 'autohide' && this.isUIHidden;
 
@@ -1344,6 +1385,10 @@ export class DiveVideo extends LitElement {
               </div>
             `)}
           </div>
+
+          ${this.audioDebugEnabled && this.audioDebug ? html`
+            <div class="audio-debug" part="audio-debug">${this.formatAudioDebug(this.audioDebug)}</div>
+          ` : ''}
 
           ${this.captionsEnabled && this.activeCues.length ? html`
             <div class="captions" part="captions" aria-hidden="true">
@@ -1504,6 +1549,17 @@ export class DiveVideo extends LitElement {
               Audio description
             </label>
           ` : ''}
+          <label>
+            <input
+              type="checkbox"
+              .checked=${this.audioDebugEnabled}
+              @change=${() => {
+                this.audioDebugEnabled = !this.audioDebugEnabled;
+                this.audioDebug = this.audioDebugEnabled ? this.audioEngine.getDebug() : null;
+              }}
+            />
+            Audio sync debug
+          </label>
         </div>
       ` : ''}
       
