@@ -869,6 +869,7 @@ export class DiveVideo extends LitElement {
       return;
     }
     this.audioEngine.unlock();
+    this.audioEngine.markEvent('play');
     this.lastVisualState = null;
     this.hasStarted = true;
     this.ended = false;
@@ -920,9 +921,20 @@ export class DiveVideo extends LitElement {
       `play   ${debug.audioSeconds.toFixed(3)}s`,
       `drift  ${sign}${debug.driftMs.toFixed(0)} ms`,
       `rate   ${debug.ratePercent.toFixed(2)}%  (target ${debug.targetRatePercent.toFixed(2)}%)`,
+      `log    ${this.audioEngine.getLogLength()} samples`,
       debug.holdMs > 0 ? `hold   ${debug.holdMs.toFixed(0)} ms` : '',
       debug.seeking ? 'decoder seeking' : '',
     ].filter(Boolean).join('\n');
+  }
+
+  private downloadAudioLog = () => {
+    const blob = new Blob([this.audioEngine.exportLog()], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `dive-audio-sync-${Date.now()}.json`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   private toggleMute() {
@@ -940,6 +952,7 @@ export class DiveVideo extends LitElement {
     
     if (this.isPlaying || this.playWhenReady) {
       this.playWhenReady = false;
+      this.audioEngine.markEvent('pause');
       this.sequencer.pause();
       this.isPlaying = false;
       this.notifyAdapterPlaybackState();
@@ -959,6 +972,7 @@ export class DiveVideo extends LitElement {
     this.lastVisualState = null; // Force snapback on scrub
     this.ended = false;
     this.audioHardSeek = true;
+    this.audioEngine.markEvent(`scrub:${Math.round(this.currentTime)}->${Math.round(timeMs)}`);
     this.sequencer.seek(timeMs);
   }
 
@@ -969,6 +983,7 @@ export class DiveVideo extends LitElement {
 
     this.isScrubbing = true;
     this.scrubberElement = e.currentTarget;
+    this.audioEngine.markEvent('scrub-start');
     this.seekFromScrubberClientX(e.clientX, this.scrubberElement);
 
     window.addEventListener('pointermove', this.handleGlobalPointerMove);
@@ -984,6 +999,8 @@ export class DiveVideo extends LitElement {
   };
 
   private handleGlobalPointerUp = () => {
+    this.audioEngine.markEvent('scrub-end');
+    this.syncMedia(this.currentTime);
     this.stopScrubTracking();
   };
 
@@ -1082,6 +1099,7 @@ export class DiveVideo extends LitElement {
     this.ended = false;
     this.lastVisualState = null;
     this.audioHardSeek = true;
+    this.audioEngine.markEvent(`chapter:${scene.id}`);
     this.sequencer.seek(scene.startTime);
   }
 
@@ -1093,6 +1111,7 @@ export class DiveVideo extends LitElement {
     this.hasStarted = true;
     this.lastVisualState = null;
     this.audioHardSeek = true;
+    this.audioEngine.markEvent('replay');
     this.sequencer.seek(0);
     this.audioEngine.unlock();
     this.sequencer.play();
@@ -1201,6 +1220,7 @@ export class DiveVideo extends LitElement {
     this.lastVisualState = null;
     this.ended = false;
     this.audioHardSeek = true;
+    this.audioEngine.markEvent(`skip:${deltaMs}`);
     this.sequencer.seek(this.currentTime + deltaMs);
   }
 
@@ -1560,6 +1580,9 @@ export class DiveVideo extends LitElement {
             />
             Audio sync debug
           </label>
+          <button type="button" @click=${this.downloadAudioLog}>
+            Download sync log (${this.audioEngine.getLogLength()})
+          </button>
         </div>
       ` : ''}
       
