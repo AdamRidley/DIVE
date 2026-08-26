@@ -35,3 +35,20 @@ export function parseAspectRatio(value?: string | number | null): AspectRatio {
 export function aspectCss(aspect: AspectRatio): string {
   return `${aspect.width} / ${aspect.height}`;
 }
+
+/** Largest rectangle of `aspect` that fits in the cell (letterbox / pillarbox). */
+export function containSize(
+  cellWidth: number,
+  cellHeight: number,
+  aspect: AspectRatio,
+): { width: number; height: number } {
+  if (!(cellWidth > 0) || !(cellHeight > 0) || !(aspect.width > 0) || !(aspect.height > 0)) {
+    return { width: 0, height: 0 };
+  }
+  const cell = cellWidth / cellHeight;
+  const target = aspect.width / aspect.height;
+  if (cell > target) {
+    return { width: cellHeight * target, height: cellHeight };
+  }
+  return { width: cellWidth, height: cellWidth / target };
+}
