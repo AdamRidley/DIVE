@@ -68,6 +68,11 @@
       "description": "Poster image URL",
       "type": "string"
     },
+    "uiMode": {
+      "description": "Player chrome: autohide overlays the picture; inset keeps chrome outside the picture",
+      "type": "string",
+      "enum": ["autohide", "inset"]
+    },
     "assets": {
       "description": "Asset definitions",
       "type": "array",
@@ -175,6 +180,7 @@
         },
         "sendData": { "type": "boolean" },
         "pauseOnInteract": { "type": "boolean" },
+        "uiMode": { "type": "string", "enum": ["autohide", "inset"] },
         "dependencies": {
           "type": "array",
           "items": { "type": "string" }

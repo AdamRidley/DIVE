@@ -14,6 +14,7 @@ import { captionTracksForLocale, cuesAtTime, resolveCaptionTracks, ResolvedCapti
 import { filesForScene, loadDivePack, looksLikeDiveUrl, openDivePack, shouldLoadAsDive, DivePackSession } from '../core/dive-pack';
 import { listedLanguages, resolveLocalized, resolvePlayerLanguage, storeLanguage } from '../core/locale';
 import { readDiveUrlState, writeDiveUrlState } from '../core/url-state';
+import { resolveUiMode } from '../core/ui-mode';
 
 const toolRegistry: Record<string, new () => IAdapter> = {
   'map': D3MapAdapter,
@@ -36,6 +37,7 @@ const timelineSectionPalette = [
 @customElement('dive-video')
 export class DiveVideo extends LitElement {
   @property({ type: String }) src = ''; // URL to the story JSON
+  @property({ type: String, attribute: 'ui-mode' }) uiMode = '';
 
   @state() private story: Story | null = null;
   @state() private isPlaying = false;
@@ -94,6 +96,14 @@ export class DiveVideo extends LitElement {
       height: 100%;
       aspect-ratio: auto;
     }
+    :host([ui-mode="inset"]) {
+      display: grid;
+      grid-template-rows: 48px minmax(0, 1fr) 56px;
+      background: #111214;
+    }
+    :host([ui-mode="inset"]:fullscreen) {
+      grid-template-rows: 52px minmax(0, 1fr) 64px;
+    }
     .video-section {
       position: absolute;
       inset: 0;
@@ -102,6 +112,11 @@ export class DiveVideo extends LitElement {
       background: #000;
       container-type: size;
       container-name: stage;
+    }
+    :host([ui-mode="inset"]) .video-section {
+      position: relative;
+      inset: auto;
+      min-height: 0;
     }
     .video-ratio-wrapper {
       position: relative;
@@ -287,6 +302,44 @@ export class DiveVideo extends LitElement {
     .controls.hidden {
       transform: translateY(40%);
     }
+    .chrome-top {
+      display: contents;
+    }
+    :host([ui-mode="inset"]) .chrome-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 8px;
+      background: #111214;
+      z-index: 11;
+    }
+    :host([ui-mode="inset"]) .controls {
+      position: relative;
+      bottom: auto;
+      left: auto;
+      right: auto;
+      min-height: 56px;
+      background: #111214;
+      transform: none;
+      opacity: 1;
+      pointer-events: auto;
+    }
+    :host([ui-mode="inset"]) .corner-btn,
+    :host([ui-mode="inset"]) button.icon-btn.corner-btn {
+      position: relative;
+      top: auto;
+      left: auto;
+      right: auto;
+      background: rgba(255, 255, 255, 0.08);
+    }
+    :host([ui-mode="inset"]) .drawer.chapters {
+      left: 8px;
+      top: 50px;
+    }
+    :host([ui-mode="inset"]) .drawer.settings {
+      right: 8px;
+      top: 50px;
+    }
     .corner-btn {
       position: absolute;
       top: 10px;
@@ -422,6 +475,13 @@ export class DiveVideo extends LitElement {
     this.observeStage();
   }
 
+  protected updated() {
+    const mode = this.activeUiMode();
+    if (this.getAttribute('ui-mode') !== mode) {
+      this.setAttribute('ui-mode', mode);
+    }
+  }
+
   disconnectedCallback(): void {
     super.disconnectedCallback();
     this.stopScrubTracking();
@@ -467,8 +527,13 @@ export class DiveVideo extends LitElement {
     }
   }
 
+  private activeUiMode() {
+    const scene = this.story?.scenes.find((item) => item.id === this.activeToolId);
+    return resolveUiMode(this.story, scene, this.uiMode);
+  }
+
   private resetUIHideTimer = () => {
-    const keepChrome = !this.isPlaying || this.settingsOpen || this.chaptersOpen || this.ended || !this.sceneReady;
+    const keepChrome = this.activeUiMode() === 'inset' || !this.isPlaying || this.settingsOpen || this.chaptersOpen || this.ended || !this.sceneReady;
     this.isUIHidden = false;
     if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
     if (keepChrome) {
@@ -1236,7 +1301,8 @@ export class DiveVideo extends LitElement {
     const poster = this.story.poster && !this.hasStarted ? this.story.poster : null;
     const title = resolveLocalized(this.story.title, this.playerLang);
     const hasSettings = showLang || hasCaptions || hasDescriptions;
-    const chromeHidden = this.isUIHidden;
+    const chromeMode = this.activeUiMode();
+    const chromeHidden = chromeMode === 'autohide' && this.isUIHidden;
 
     return html`
       <div class="video-section">
@@ -1245,7 +1311,7 @@ export class DiveVideo extends LitElement {
           style="--aspect-ratio: ${aspectCss(aspect)}; --ar-w: ${aspect.width}; --ar-h: ${aspect.height};"
         >
           <div id="canvas-container" class="${this.toolFading ? 'fading' : ''}" part="canvas"></div>
-          ${this.isPlaying ? html`<div class="play-catcher" @pointerdown=${this.handlePlayCatcher}></div>` : ''}
+          ${chromeMode === 'autohide' && this.isPlaying ? html`<div class="play-catcher" @pointerdown=${this.handlePlayCatcher}></div>` : ''}
           ${poster ? html`<img class="poster" part="poster" src="${poster}" alt="" />` : ''}
           ${this.sceneReady ? '' : html`<div class="buffer-spinner" part="buffer" aria-label="Loading scene"></div>`}
           
@@ -1276,6 +1342,7 @@ export class DiveVideo extends LitElement {
       </div>
 
       <!-- Controls Layer -->
+      <div class="chrome-top">
       <button
         class="icon-btn corner-btn chapters ${chromeHidden ? 'hidden' : ''}"
         @click=${this.toggleChapters}
@@ -1297,6 +1364,7 @@ export class DiveVideo extends LitElement {
           <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.2 7.2 0 0 0-1.63-.94l-.36-2.54A.49.49 0 0 0 13.9 2h-3.8a.49.49 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.55-1.63.94l-2.39-.96a.49.49 0 0 0-.59.22L2.73 8.47a.49.49 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.13.23.4.32.64.22l2.39-.96c.5.39 1.04.7 1.63.94l.36 2.54c.05.24.25.41.48.41h3.8c.23 0 .43-.17.48-.41l.36-2.54c.59-.24 1.13-.55 1.63-.94l2.39.96c.23.09.51 0 .64-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
         </button>
       ` : ''}
+      </div>
 
       <div class="controls ${chromeHidden ? 'hidden' : ''}" part="controls">
         <button
