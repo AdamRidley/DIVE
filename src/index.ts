@@ -24,5 +24,7 @@ export type {
 } from './core/types';
 export { parseAspectRatio, containSize, DEFAULT_ASPECT } from './core/aspect';
 export { parseVtt, cuesAtTime, captionTracksForLocale } from './core/captions';
+export { collectStoryAudio, filterAudioClips } from './core/audio';
+export type { AudioSyncDebug } from './core/audio';
 export { resolveLocalized, resolvePlayerLanguage, DEFAULT_LANGUAGE } from './core/locale';
 export { readDiveUrlState, writeDiveUrlState } from './core/url-state';
