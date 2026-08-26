@@ -117,6 +117,24 @@ export function rewriteStoryForPack(story: Story, pack: DivePack): Story {
   return next;
 }
 
+function resolvePackRef(fromFile: string, rel: string): string {
+  const base = fromFile.split('/').slice(0, -1);
+  for (const part of rel.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') base.pop();
+    else base.push(part);
+  }
+  return base.join('/');
+}
+
+function rewritePackedHtmlRefs(html: string, toolPath: string, urls: Map<string, string>): string {
+  return html.replace(/\b(src|href)=["'](\.\.?\/[^"']+)["']/gi, (match, attr: string, rel: string) => {
+    const key = resolvePackRef(toolPath, rel);
+    const mapped = urls.get(key);
+    return mapped ? `${attr}="${mapped}"` : match;
+  });
+}
+
 function injectPackShim(html: string, toolPath: string, urls: Map<string, string>): string {
   const packJson = JSON.stringify(Object.fromEntries(urls));
   const shim = `<script data-dive-pack-shim>(function(){
@@ -129,13 +147,17 @@ function remapBase(base){
   if(s.indexOf('blob:')===0 || s===window.location.href) return 'https://dive.invalid/'+TOOL;
   return base;
 }
+function packPath(u){
+  var path=decodeURIComponent(u.pathname||'');
+  return path.charAt(0)==='/' ? path.slice(1) : path;
+}
 function remap(raw){
   if(typeof raw!=='string') return raw;
   if(PACK[raw]) return PACK[raw];
   try{
     var u=new NativeURL(raw, remapBase(window.location.href));
     if(u.hostname==='dive.invalid'){
-      var path=decodeURIComponent(u.pathname.replace(/^\\//,''));
+      var path=packPath(u);
       if(PACK[path]) return PACK[path];
     }
   }catch(e){}
@@ -144,7 +166,7 @@ function remap(raw){
 window.URL=function(url, base){
   var u=new NativeURL(url, remapBase(base));
   if(u.hostname==='dive.invalid'){
-    var path=decodeURIComponent(u.pathname.replace(/^\\//,''));
+    var path=packPath(u);
     if(PACK[path]) return new NativeURL(PACK[path]);
   }
   return u;
@@ -161,10 +183,11 @@ window.fetch=function(input, init){
 };
 })();</script>`;
 
-  if (/<head[^>]*>/i.test(html)) {
-    return html.replace(/<head[^>]*>/i, (match) => `${match}\n${shim}`);
+  const withRefs = rewritePackedHtmlRefs(html, toolPath, urls);
+  if (/<head[^>]*>/i.test(withRefs)) {
+    return withRefs.replace(/<head[^>]*>/i, (match) => `${match}${shim}`);
   }
-  return `${shim}\n${html}`;
+  return `${shim}${withRefs}`;
 }
 
 export function materializePackedTool(pack: DivePack, originalToolPath: string, rewrittenTool: string): string {

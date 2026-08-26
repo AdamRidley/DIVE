@@ -14,6 +14,8 @@ export class IframeAdapter implements IAdapter {
   private pendingLang: string | null = null;
   private interactCallback: (() => void) | null = null;
   private languageCallback: ((lang: string) => void) | null = null;
+  private readyCallback: (() => void) | null = null;
+  private ready = false;
 
   private messageHandler = (event: MessageEvent) => {
     if (!this.iframe || event.source !== this.iframe.contentWindow) {
@@ -26,6 +28,10 @@ export class IframeAdapter implements IAdapter {
     if (event.data?.type === 'DIVE_LANG' && typeof event.data.lang === 'string') {
       this.languageCallback?.(event.data.lang);
     }
+    if (event.data?.type === 'DIVE_READY') {
+      this.ready = true;
+      this.readyCallback?.();
+    }
   };
 
   constructor(url: string) {
@@ -36,6 +42,7 @@ export class IframeAdapter implements IAdapter {
     this.container = container;
     this.initData = data;
     this.isLoaded = false;
+    this.ready = false;
 
     this.iframe = document.createElement('iframe');
     this.iframe.src = this.url;
@@ -51,13 +58,11 @@ export class IframeAdapter implements IAdapter {
       const targetWindow = this.iframe?.contentWindow;
       if (!targetWindow) return;
 
-      if (typeof this.initData !== 'undefined') {
-        targetWindow.postMessage({
-          type: 'DIVE_INIT',
-          data: this.initData,
-          lang: this.pendingLang,
-        }, '*');
-      }
+      targetWindow.postMessage({
+        type: 'DIVE_INIT',
+        data: this.initData,
+        lang: this.pendingLang,
+      }, '*');
 
       // If timeline state was pushed before iframe load completed, replay the latest state now.
       if (this.pendingState !== null) {
@@ -100,6 +105,8 @@ export class IframeAdapter implements IAdapter {
     this.pendingPlaybackIsPlaying = null;
     this.pendingPlaybackTime = 0;
     this.pendingLang = null;
+    this.ready = false;
+    this.readyCallback = null;
   }
 
   setState(state: any, time: number): void {
@@ -148,6 +155,13 @@ export class IframeAdapter implements IAdapter {
 
   onLanguage(callback: (lang: string) => void): void {
     this.languageCallback = callback;
+  }
+
+  onReady(callback: () => void): void {
+    this.readyCallback = callback;
+    if (this.ready) {
+      callback();
+    }
   }
 }
 

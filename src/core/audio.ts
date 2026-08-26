@@ -107,9 +107,11 @@ export function filterAudioClips(
 interface ManagedClip {
   spec: NormalizedAudioClip;
   element: HTMLAudioElement;
+  playLock: Promise<void> | null;
 }
 
-const SYNC_SLOP_SECONDS = 0.08;
+const SYNC_SLOP_SECONDS = 0.35;
+const LOOP_SYNC_SLOP_SECONDS = 0.5;
 
 export class AudioEngine {
   private clips: ManagedClip[] = [];
@@ -126,7 +128,7 @@ export class AudioEngine {
       element.loop = spec.loop;
       element.volume = spec.volume * this.masterVolume;
       element.muted = this.muted;
-      return { spec, element };
+      return { spec, element, playLock: null };
     });
   }
 
@@ -163,7 +165,11 @@ export class AudioEngine {
   sync(storyTimeMs: number, playing: boolean): void {
     for (const clip of this.clips) {
       const active = playing && storyTimeMs >= clip.spec.startTime && storyTimeMs < clip.spec.endTime;
-      const mediaTime = (storyTimeMs - clip.spec.startTime + clip.spec.offset) / 1000;
+      let mediaTime = (storyTimeMs - clip.spec.startTime + clip.spec.offset) / 1000;
+      const duration = clip.element.duration;
+      if (clip.spec.loop && Number.isFinite(duration) && duration > 0) {
+        mediaTime = ((mediaTime % duration) + duration) % duration;
+      }
 
       if (!active) {
         if (!clip.element.paused) {
@@ -172,8 +178,14 @@ export class AudioEngine {
         continue;
       }
 
-      if (Number.isFinite(mediaTime) && mediaTime >= 0) {
-        if (Math.abs(clip.element.currentTime - mediaTime) > SYNC_SLOP_SECONDS) {
+      if (Number.isFinite(mediaTime) && mediaTime >= 0 && clip.element.readyState >= 1) {
+        const slop = clip.spec.loop ? LOOP_SYNC_SLOP_SECONDS : SYNC_SLOP_SECONDS;
+        let drift = clip.element.currentTime - mediaTime;
+        if (clip.spec.loop && Number.isFinite(duration) && duration > 0) {
+          if (drift > duration / 2) drift -= duration;
+          if (drift < -duration / 2) drift += duration;
+        }
+        if (Math.abs(drift) > slop) {
           try {
             clip.element.currentTime = mediaTime;
           } catch {
@@ -184,10 +196,14 @@ export class AudioEngine {
 
       clip.element.volume = clip.spec.volume * this.masterVolume;
       clip.element.muted = this.muted;
-      if (clip.element.paused) {
+      if (clip.element.paused && !clip.playLock) {
         const playAttempt = clip.element.play();
         if (playAttempt) {
-          playAttempt.catch(() => { /* autoplay / unlock will retry on next gesture */ });
+          clip.playLock = playAttempt.then(() => {
+            clip.playLock = null;
+          }).catch(() => {
+            clip.playLock = null;
+          });
         }
       }
     }
