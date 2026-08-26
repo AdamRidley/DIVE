@@ -31,4 +31,9 @@ export interface IAdapter {
    */
   setLanguage?(lang: string): void;
   onLanguage?(callback: (lang: string) => void): void;
+
+  /**
+   * Optional: tool finished first paint / data load. Player buffers until this fires.
+   */
+  onReady?(callback: () => void): void;
 }

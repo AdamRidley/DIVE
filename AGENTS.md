@@ -55,7 +55,7 @@ npm run build:wealth-health-data   # regenerate Gapminder JSON from raw CSVs
 - Built-in tools: register in `toolRegistry` (`map`, `scatterplot`). External tools:
   - `tool` ending `.js` → dynamic `import()` of an `IAdapter` class
   - `tool` ending `.html` or `http(s)://` → `IframeAdapter` + `postMessage`
-- Iframe protocol (child → parent: `DIVE_INTERACT`; parent → child: `DIVE_INIT`, `DIVE_STATE`, `DIVE_PLAYBACK`).
+- Iframe protocol (child → parent: `DIVE_INTERACT`, `DIVE_READY`, `DIVE_LANG`; parent → child: `DIVE_INIT`, `DIVE_STATE`, `DIVE_PLAYBACK`, `DIVE_LANG`). Player buffers until `DIVE_READY`.
 - Keyframe `time` is milliseconds from **scene start**, not story start.
 - `visualState.streamTime: true` makes the player call `setState` every tick.
 - `pauseOnInteract` may be set on the scene or on the current keyframe state.

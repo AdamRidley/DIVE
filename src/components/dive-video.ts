@@ -55,6 +55,8 @@ export class DiveVideo extends LitElement {
   @state() private hasStarted = false;
   @state() private sceneReady = true;
   @state() private toolFading = false;
+  private playWhenReady = false;
+  private toolReadyTimer = 0;
 
   @query('#canvas-container') private canvasContainer!: HTMLElement;
   @query('.video-ratio-wrapper') private ratioWrapper?: HTMLElement;
@@ -118,6 +120,12 @@ export class DiveVideo extends LitElement {
       transform-origin: 0 0;
       transform: scale(var(--stage-scale, 1));
       transition: opacity 0.28s ease;
+    }
+    .play-catcher {
+      position: absolute;
+      inset: 0;
+      z-index: 8;
+      background: transparent;
     }
     #canvas-container.fading {
       opacity: 0;
@@ -423,6 +431,7 @@ export class DiveVideo extends LitElement {
     this.removeEventListener('keydown', this.handleKeydown);
     if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
     if (this.urlSyncHandle) window.clearTimeout(this.urlSyncHandle);
+    if (this.toolReadyTimer) window.clearTimeout(this.toolReadyTimer);
     this.stageObserver?.disconnect();
     this.audioEngine.dispose();
   }
@@ -459,15 +468,27 @@ export class DiveVideo extends LitElement {
   }
 
   private resetUIHideTimer = () => {
-    const keepChrome = !this.isPlaying || this.settingsOpen || this.chaptersOpen || this.ended;
+    const keepChrome = !this.isPlaying || this.settingsOpen || this.chaptersOpen || this.ended || !this.sceneReady;
     this.isUIHidden = false;
     if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
     if (keepChrome) {
       return;
     }
+    const delay = window.matchMedia('(hover: none)').matches ? 4000 : 2500;
     this.hideUIHandle = window.setTimeout(() => {
       this.isUIHidden = true;
-    }, 2500);
+    }, delay);
+  }
+
+  private handlePlayCatcher = (event: Event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.isUIHidden) {
+      this.resetUIHideTimer();
+      return;
+    }
+    this.isUIHidden = true;
+    if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
   }
 
   private observeStage() {
@@ -524,7 +545,7 @@ export class DiveVideo extends LitElement {
         ? await resolveCaptionTracks(this.story.captions, this.storyBaseUrl)
         : [];
       this.captionsEnabled = this.captionTracks.some((track) => track.kind !== 'descriptions');
-      this.sceneReady = true;
+      this.sceneReady = false;
       this.hasStarted = false;
       this.ended = false;
       await this.updateComplete;
@@ -590,14 +611,15 @@ export class DiveVideo extends LitElement {
       this.sceneReady = false;
       if (resume) {
         this.sequencer?.pause();
+        this.isPlaying = false;
+        this.playWhenReady = true;
       }
       try {
         await this.packSession.prioritizeScene(scene.id);
         await this.packSession.waitFor(needed);
       } finally {
-        this.sceneReady = true;
         if (resume) {
-          this.sequencer?.play();
+          this.playWhenReady = true;
         }
       }
     }
@@ -683,30 +705,80 @@ export class DiveVideo extends LitElement {
   private async fetchDataAndMount(scene: Story['scenes'][0]) {
     try {
       let data: unknown = undefined;
-      const shouldSendData = scene.sendData !== false && typeof scene.data !== 'undefined';
+      const dataRef = scene.data;
+      const shouldSendData = scene.sendData !== false && typeof dataRef !== 'undefined';
 
-      if (shouldSendData) {
-        const dataRef = scene.data;
-        const isExternalDataUrl = typeof dataRef === 'string' && /^(https?:\/\/|\/|\.\/|\.\.\/)/.test(dataRef);
-
-        if (isExternalDataUrl) {
-          const dataUrl = new URL(dataRef as string, window.location.origin).href;
-          const res = await fetch(dataUrl);
-          data = await res.json();
-        } else {
-          data = dataRef;
-        }
+      if (shouldSendData && typeof dataRef === 'string') {
+        const dataUrl = /^(https?:|blob:)/i.test(dataRef)
+          ? dataRef
+          : new URL(dataRef, this.storyBaseUrl || window.location.href).href;
+        const res = await fetch(dataUrl);
+        data = await res.json();
+      } else if (shouldSendData) {
+        data = dataRef;
       }
 
+      this.armToolReady(scene);
       this.activeAdapter?.mount(this.canvasContainer, data);
       this.activeAdapter?.setLanguage?.(this.playerLang);
       this.activeAdapter?.onLanguage?.((code) => this.setLanguage(code));
+      this.activeAdapter?.onReady?.(() => this.markToolReady());
       this.notifyAdapterPlaybackState();
       requestAnimationFrame(() => { this.toolFading = false; });
       this.prefetchNextScene(scene);
     } catch (e) {
       console.error("Failed to load data for tool:", e);
+      this.markToolReady();
     }
+  }
+
+  private armToolReady(scene: Story['scenes'][0]) {
+    if (this.toolReadyTimer) window.clearTimeout(this.toolReadyTimer);
+    this.sceneReady = false;
+    this.resetUIHideTimer();
+    const needsReady = Boolean(this.activeAdapter?.onReady) || scene.tool.endsWith('.html') || scene.tool.startsWith('blob:');
+    if (!needsReady) {
+      this.markToolReady();
+      return;
+    }
+    this.toolReadyTimer = window.setTimeout(() => this.markToolReady(), 8000);
+  }
+
+  private markToolReady() {
+    if (this.toolReadyTimer) {
+      window.clearTimeout(this.toolReadyTimer);
+      this.toolReadyTimer = 0;
+    }
+    if (this.sceneReady) {
+      return;
+    }
+    this.sceneReady = true;
+    this.resetUIHideTimer();
+    if (this.playWhenReady) {
+      this.playWhenReady = false;
+      this.beginPlayback();
+    }
+  }
+
+  private beginPlayback() {
+    if (!this.sequencer) return;
+    if (!this.sceneReady) {
+      this.playWhenReady = true;
+      return;
+    }
+    this.audioEngine.unlock();
+    this.lastVisualState = null;
+    this.hasStarted = true;
+    this.ended = false;
+    this.settingsOpen = false;
+    this.chaptersOpen = false;
+    if (this.currentTime >= (this.story?.duration || 0)) {
+      this.sequencer.seek(0);
+    }
+    this.sequencer.play();
+    this.isPlaying = true;
+    this.notifyAdapterPlaybackState();
+    this.resetUIHideTimer();
   }
 
   private notifyAdapterPlaybackState() {
@@ -745,25 +817,14 @@ export class DiveVideo extends LitElement {
   private togglePlay() {
     if (!this.sequencer) return;
     
-    if (this.isPlaying) {
+    if (this.isPlaying || this.playWhenReady) {
+      this.playWhenReady = false;
       this.sequencer.pause();
       this.isPlaying = false;
       this.notifyAdapterPlaybackState();
       this.resetUIHideTimer();
     } else {
-      this.audioEngine.unlock();
-      this.lastVisualState = null;
-      this.hasStarted = true;
-      this.ended = false;
-      this.settingsOpen = false;
-      this.chaptersOpen = false;
-      if (this.currentTime >= (this.story?.duration || 0)) {
-        this.sequencer.seek(0);
-      }
-      this.sequencer.play();
-      this.isPlaying = true;
-      this.notifyAdapterPlaybackState();
-      this.resetUIHideTimer();
+      this.beginPlayback();
     }
   }
 
@@ -1184,6 +1245,7 @@ export class DiveVideo extends LitElement {
           style="--aspect-ratio: ${aspectCss(aspect)}; --ar-w: ${aspect.width}; --ar-h: ${aspect.height};"
         >
           <div id="canvas-container" class="${this.toolFading ? 'fading' : ''}" part="canvas"></div>
+          ${this.isPlaying ? html`<div class="play-catcher" @pointerdown=${this.handlePlayCatcher}></div>` : ''}
           ${poster ? html`<img class="poster" part="poster" src="${poster}" alt="" />` : ''}
           ${this.sceneReady ? '' : html`<div class="buffer-spinner" part="buffer" aria-label="Loading scene"></div>`}
           
@@ -1290,11 +1352,9 @@ export class DiveVideo extends LitElement {
             aria-label="${this.isMuted ? 'Unmute' : 'Mute'}"
             aria-pressed=${this.isMuted}
           >
-            <svg viewBox="0 0 24 24">
-              ${this.isMuted
-                ? html`<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"/>`
-                : html`<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>`}
-            </svg>
+            ${this.isMuted
+              ? html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"/></svg>`
+              : html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>`}
           </button>
         ` : ''}
 
@@ -1306,9 +1366,7 @@ export class DiveVideo extends LitElement {
             aria-label="${this.captionsEnabled ? 'Hide captions' : 'Show captions'}"
             aria-pressed=${this.captionsEnabled}
           >
-            <svg viewBox="0 0 24 24">
-              <path d="M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z"/>
-            </svg>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z"/></svg>
           </button>
         ` : ''}
 
