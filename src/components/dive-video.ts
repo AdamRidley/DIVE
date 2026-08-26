@@ -879,6 +879,8 @@ export class DiveVideo extends LitElement {
       this.audioHardSeek = true;
       this.sequencer.seek(0);
     }
+    this.audioHardSeek = true;
+    this.sequencer.hold(this.audioEngine.hasAudio);
     this.sequencer.play();
     this.isPlaying = true;
     this.notifyAdapterPlaybackState();
@@ -903,6 +905,7 @@ export class DiveVideo extends LitElement {
     const hard = this.audioHardSeek;
     this.audioHardSeek = false;
     this.audioEngine.sync(timeMs, this.isPlaying, { hard });
+    this.sequencer?.hold(this.isPlaying && this.audioEngine.isHoldingStory);
     if (this.audioDebugEnabled) {
       this.audioDebug = this.audioEngine.getDebug();
     }
@@ -921,7 +924,7 @@ export class DiveVideo extends LitElement {
       `play   ${debug.audioSeconds.toFixed(3)}s`,
       `drift  ${sign}${debug.driftMs.toFixed(0)} ms`,
       `rate   100%`,
-      `preroll ${debug.prerollMs.toFixed(0)} ms`,
+      this.audioEngine.isHoldingStory ? 'story  held for audio' : '',
       `log    ${this.audioEngine.getLogLength()} samples`,
       debug.holdMs > 0 ? `hold   ${debug.holdMs.toFixed(0)} ms` : '',
       debug.seeking ? 'decoder seeking' : '',

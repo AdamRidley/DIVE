@@ -1,137 +1,119 @@
 import assert from 'node:assert/strict';
-import { DEFAULT_PREROLL_SECONDS, planAudioSync } from '../src/core/audio-sync-plan.ts';
+import { planAudioSync } from '../src/core/audio-sync-plan.ts';
 
 function base(overrides = {}) {
   return {
     now: 10000,
-    mediaTime: 42,
-    audioTime: 42,
+    mediaTime: 15,
+    audioTime: 15,
     seeking: false,
     readyState: 4,
-    paused: true,
     hard: false,
     phase: 'locked',
     lastSeekAt: 0,
-    lastAssigned: 42,
+    lastAssigned: 15,
     clockMoved: false,
-    preroll: DEFAULT_PREROLL_SECONDS,
-    resyncs: 0,
     ...overrides,
   };
 }
 
-const hard = planAudioSync(base({ hard: true, mediaTime: 42, audioTime: 10 }));
+const hard = planAudioSync(base({ hard: true, mediaTime: 15, audioTime: 10 }));
 assert.equal(hard.action, 'seek');
-assert.equal(hard.seekTo, 42);
+assert.equal(hard.seekTo, 15);
 assert.equal(hard.phase, 'seeking');
+assert.equal(hard.holdStory, true);
 assert.equal(hard.event, 'hard-seek');
 
 const held = planAudioSync(base({
-  now: 10040,
-  mediaTime: 42.04,
-  audioTime: 42,
+  now: 10020,
+  mediaTime: 15,
+  audioTime: 15,
   phase: 'seeking',
   lastSeekAt: 10000,
-  lastAssigned: 42,
+  lastAssigned: 15,
   seeking: true,
 }));
 assert.equal(held.mode, 'hold');
 assert.equal(held.action, 'none');
+assert.equal(held.holdStory, true);
 
-const preroll = planAudioSync(base({
+const waiting = planAudioSync(base({
   now: 10080,
-  mediaTime: 42.08,
-  audioTime: 42,
+  mediaTime: 15,
+  audioTime: 15,
   phase: 'seeking',
   lastSeekAt: 10000,
-  lastAssigned: 42,
+  lastAssigned: 15,
   seeking: false,
+}));
+assert.equal(waiting.action, 'play');
+assert.equal(waiting.holdStory, true);
+assert.notEqual(waiting.event, 'preroll');
+assert.notEqual(waiting.event, 'start-snap');
+
+// First-play rows from dive-audio-sync-1787784393297.json.
+// Old planner prerolled, then start-snapped the lead, then resynced in a loop.
+let state = {
+  now: 725102,
+  mediaTime: 15,
+  audioTime: 15,
+  seeking: true,
   readyState: 4,
-}));
-assert.equal(preroll.event, 'preroll');
-assert.equal(preroll.action, 'seek');
-assert.equal(preroll.phase, 'starting');
-assert.ok(preroll.seekTo > 42.08);
-
-const starting = planAudioSync(base({
-  now: 10100,
-  mediaTime: 42.1,
-  audioTime: 42.28,
-  phase: 'starting',
-  lastSeekAt: 10080,
-  lastAssigned: 42.28,
-  paused: false,
+  hard: true,
+  phase: 'locked',
+  lastSeekAt: 0,
+  lastAssigned: 0,
   clockMoved: false,
-}));
-assert.equal(starting.phase, 'starting');
-assert.equal(starting.action, 'play');
+};
+const events = [];
+const seeks = [];
+function step(overrides) {
+  state = { ...state, hard: false, ...overrides };
+  const plan = planAudioSync(state);
+  state.phase = plan.phase;
+  state.lastSeekAt = plan.lastSeekAt;
+  state.lastAssigned = plan.lastAssigned;
+  state.clockMoved = plan.clockMoved;
+  if (plan.event) events.push(plan.event);
+  if (plan.action === 'seek') seeks.push(plan.seekTo);
+  return plan;
+}
 
-// Replay of the first-play lock: clock finally moves 359ms after preroll, 100ms late.
-const firstPlay = planAudioSync(base({
-  now: 3639674,
-  mediaTime: 59.45122,
-  audioTime: 59.349496,
-  phase: 'starting',
-  lastSeekAt: 3639315,
-  lastAssigned: 59.29258,
-  paused: false,
-  clockMoved: false,
-  preroll: 0.2,
-  resyncs: 0,
-}));
-assert.equal(firstPlay.event, 'start-snap');
-assert.equal(firstPlay.action, 'seek');
-assert.equal(firstPlay.phase, 'starting');
-assert.ok(firstPlay.seekTo > 59.45122);
+step({ now: 725102, mediaTime: 15, audioTime: 15, hard: true, seeking: true });
+step({ now: 725120, mediaTime: 15.01, audioTime: 15, seeking: false });
+step({ now: 725176, mediaTime: 15.068, audioTime: 15, seeking: false });
+const lead = step({ now: 725333, mediaTime: 15.227, audioTime: 15.348, seeking: false });
+assert.notEqual(lead.event, 'start-snap');
+assert.notEqual(lead.action, 'seek');
+const moving = step({ now: 725474, mediaTime: 15.369, audioTime: 15.516, seeking: false });
+assert.ok(moving.phase === 'seeking' || moving.phase === 'locked');
+const locked = step({ now: 725697, mediaTime: 15.585, audioTime: 15.759, clockMoved: true });
+assert.equal(locked.phase, 'locked');
+assert.equal(locked.holdStory, false);
 
-// Frozen past 400ms must not lock — that was the first-play miss if lastSeekAt was stale.
-const stillFrozen = planAudioSync(base({
-  now: 3639620,
-  mediaTime: 59.39288,
-  audioTime: 59.29258,
-  phase: 'starting',
-  lastSeekAt: 3639219,
-  lastAssigned: 59.29258,
-  paused: false,
-  clockMoved: false,
-  preroll: 0.2,
-}));
-assert.equal(stillFrozen.phase, 'starting');
-assert.equal(stillFrozen.mode, 'start');
+const stillLocked = step({
+  now: 726200,
+  mediaTime: 16.1,
+  audioTime: 16.2,
+  phase: 'locked',
+  clockMoved: true,
+});
+assert.equal(stillLocked.action, 'play');
+assert.equal(stillLocked.event, undefined);
 
-const aligned = planAudioSync(base({
-  now: 10350,
-  mediaTime: 42.35,
-  audioTime: 42.345,
-  phase: 'starting',
-  lastSeekAt: 10080,
-  lastAssigned: 42.28,
-  paused: false,
+const stall = planAudioSync(base({
+  now: 20000,
+  mediaTime: 20,
+  audioTime: 18,
+  phase: 'locked',
+  lastSeekAt: 10000,
+  lastAssigned: 18,
   clockMoved: true,
 }));
-assert.equal(aligned.phase, 'locked');
-assert.equal(aligned.mode, 'locked');
+assert.equal(stall.event, 'drift-seek');
+assert.equal(stall.action, 'seek');
 
-const wander = planAudioSync(base({
-  mediaTime: 50,
-  audioTime: 49.96,
-  phase: 'locked',
-  paused: false,
-  lastSeekAt: 9000,
-}));
-assert.equal(wander.mode, 'locked');
-assert.equal(wander.action, 'play');
-
-const late = planAudioSync(base({
-  now: 12000,
-  mediaTime: 50,
-  audioTime: 49.85,
-  phase: 'locked',
-  paused: false,
-  lastSeekAt: 10000,
-}));
-assert.equal(late.event, 'locked-resync');
-assert.equal(late.action, 'seek');
-assert.equal(late.phase, 'seeking');
+assert.equal(seeks.length, 1, `chase seeks: ${seeks.join(',')}`);
+assert.deepEqual(events, ['hard-seek']);
 
 console.log('audio-sync-plan: ok');

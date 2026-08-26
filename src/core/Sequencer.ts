@@ -8,6 +8,7 @@ export class Sequencer {
   private isPlaying: boolean = false;
   private lastRafTime: number = 0;
   private rafId: number = 0;
+  private clockHeld = false;
   
   private onTick?: SequencerCallback;
 
@@ -25,12 +26,21 @@ export class Sequencer {
 
   public pause() {
     this.isPlaying = false;
+    this.clockHeld = false;
     cancelAnimationFrame(this.rafId);
   }
 
   public seek(timeMs: number) {
     this.currentTime = Math.max(0, Math.min(timeMs, this.story.duration));
+    this.lastRafTime = performance.now();
     this.updateState();
+  }
+
+  public hold(held: boolean) {
+    if (held && !this.clockHeld) {
+      this.lastRafTime = performance.now();
+    }
+    this.clockHeld = held;
   }
 
   public getCurrentTime() {
@@ -46,9 +56,11 @@ export class Sequencer {
 
     const delta = now - this.lastRafTime;
     this.lastRafTime = now;
-    
-    // Guard against occasional negative first-frame deltas from RAF timestamp jitter.
-    this.currentTime = Math.max(0, this.currentTime + delta);
+
+    if (!this.clockHeld) {
+      // Guard against occasional negative first-frame deltas from RAF timestamp jitter.
+      this.currentTime = Math.max(0, this.currentTime + delta);
+    }
     
     if (this.currentTime >= this.story.duration) {
       this.currentTime = this.story.duration;
