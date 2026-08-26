@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { planAudioSync } from '../src/core/audio-sync-plan.ts';
+import { DEFAULT_PREROLL_SECONDS, planAudioSync } from '../src/core/audio-sync-plan.ts';
 
 function base(overrides = {}) {
   return {
@@ -8,89 +8,98 @@ function base(overrides = {}) {
     audioTime: 42,
     seeking: false,
     readyState: 4,
+    paused: true,
     hard: false,
     phase: 'locked',
     lastSeekAt: 0,
     lastAssigned: 42,
-    catchUpArmed: false,
     clockMoved: false,
-    correcting: false,
-    rate: 1,
+    preroll: DEFAULT_PREROLL_SECONDS,
+    resyncs: 0,
     ...overrides,
   };
 }
 
-// Replay: play/scrub assigns currentTime, story runs, audio clock frozen.
 const hard = planAudioSync(base({ hard: true, mediaTime: 42, audioTime: 10 }));
 assert.equal(hard.action, 'seek');
 assert.equal(hard.seekTo, 42);
-assert.equal(hard.phase, 'settling');
-assert.equal(hard.catchUpArmed, true);
+assert.equal(hard.phase, 'seeking');
 assert.equal(hard.event, 'hard-seek');
 
-// During hold the story is 80ms ahead and audio is still at the assigned value.
 const held = planAudioSync(base({
-  now: 10050,
-  mediaTime: 42.05,
+  now: 10040,
+  mediaTime: 42.04,
   audioTime: 42,
-  phase: 'settling',
+  phase: 'seeking',
   lastSeekAt: 10000,
   lastAssigned: 42,
-  catchUpArmed: true,
   seeking: true,
 }));
 assert.equal(held.mode, 'hold');
 assert.equal(held.action, 'none');
 
-// After the decoder clock finally moves, audio is ~200ms late — snap, don't rate-crawl.
-const late = planAudioSync(base({
-  now: 10200,
-  mediaTime: 42.2,
-  audioTime: 42.02,
-  phase: 'settling',
+const preroll = planAudioSync(base({
+  now: 10080,
+  mediaTime: 42.08,
+  audioTime: 42,
+  phase: 'seeking',
   lastSeekAt: 10000,
   lastAssigned: 42,
-  catchUpArmed: true,
   seeking: false,
   readyState: 4,
 }));
-assert.equal(late.event, 'catchup');
-assert.equal(late.action, 'seek');
-assert.equal(late.seekTo, 42.2);
-assert.equal(late.catchUpArmed, false);
+assert.equal(preroll.event, 'preroll');
+assert.equal(preroll.action, 'seek');
+assert.equal(preroll.phase, 'starting');
+assert.ok(preroll.seekTo > 42.08);
 
-// After the one catch-up, lock instead of entering 1%/s correction.
-const after = planAudioSync(base({
-  now: 10300,
-  mediaTime: 42.3,
+const starting = planAudioSync(base({
+  now: 10100,
+  mediaTime: 42.1,
   audioTime: 42.28,
-  phase: 'settling',
-  lastSeekAt: 10200,
-  lastAssigned: 42.2,
-  catchUpArmed: false,
-  clockMoved: true,
-  seeking: false,
+  phase: 'starting',
+  lastSeekAt: 10080,
+  lastAssigned: 42.28,
+  paused: false,
+  clockMoved: false,
 }));
-assert.equal(after.phase, 'locked');
-assert.equal(after.mode, 'locked');
-assert.equal(after.action, 'none');
+assert.equal(starting.phase, 'starting');
+assert.equal(starting.action, 'play');
 
-// 40ms wander stays locked — this was the flicker in the previous log.
+const running = planAudioSync(base({
+  now: 10350,
+  mediaTime: 42.35,
+  audioTime: 42.33,
+  phase: 'starting',
+  lastSeekAt: 10080,
+  lastAssigned: 42.28,
+  paused: false,
+  clockMoved: true,
+}));
+assert.equal(running.phase, 'locked');
+assert.equal(running.mode, 'locked');
+assert.notEqual(running.action, 'slew');
+
 const wander = planAudioSync(base({
   mediaTime: 50,
   audioTime: 49.96,
   phase: 'locked',
+  paused: false,
+  lastSeekAt: 9000,
 }));
 assert.equal(wander.mode, 'locked');
-assert.equal(wander.correcting, false);
+assert.equal(wander.action, 'play');
 
-// Genuine 250ms drift during play may rate-correct, but a scrub must not.
-const drift = planAudioSync(base({
+const late = planAudioSync(base({
+  now: 12000,
   mediaTime: 50,
   audioTime: 49.7,
   phase: 'locked',
+  paused: false,
+  lastSeekAt: 10000,
 }));
-assert.equal(drift.mode, 'rate');
-assert.equal(drift.action, 'slew');
+assert.equal(late.event, 'locked-resync');
+assert.equal(late.action, 'seek');
+assert.equal(late.phase, 'seeking');
 
 console.log('audio-sync-plan: ok');

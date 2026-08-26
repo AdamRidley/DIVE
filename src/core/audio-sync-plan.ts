@@ -1,28 +1,24 @@
-export type AudioSyncPhase = 'locked' | 'settling' | 'rate';
-export type AudioSyncMode = 'idle' | 'locked' | 'rate' | 'seek' | 'hold';
+export type AudioSyncPhase = 'locked' | 'seeking' | 'starting';
+export type AudioSyncMode = 'idle' | 'locked' | 'seek' | 'hold' | 'start';
 
-/** Start rate-correcting only once drift is clearly worth it. */
-export const RATE_ENTER_SECONDS = 0.18;
-/** Stop correcting once back inside this band. */
-export const RATE_EXIT_SECONDS = 0.08;
-/** Drift that maps to the max target-rate offset. */
-export const RATE_DRIFT_SPAN_SECONDS = 4;
-/** Cap on |target playbackRate - 1|. */
-export const MAX_TARGET_RATE_DELTA = 0.12;
-/** How fast the applied rate may move toward the target. */
-export const MAX_RATE_CHANGE_PER_SECOND = 0.01;
-/** Don't poke the decoder for tinier rate writes than this. */
-export const RATE_WRITE_EPSILON = 0.001;
 /** User/story jump large enough to hard-seek. */
 export const HARD_SEEK_SECONDS = 1.25;
 /** Minimum wait after a seek before we trust currentTime. */
-export const SEEK_HOLD_MS = 80;
-/** Give up waiting for the clock and catch up anyway. */
-export const SETTLE_TIMEOUT_MS = 250;
-/** Treat currentTime as "the clock started" once it leaves the assigned value. */
-export const CLOCK_MOVE_SECONDS = 0.02;
-/** Snap again after settle if still this far off. */
-export const CATCHUP_SECONDS = 0.05;
+export const SEEK_HOLD_MS = 60;
+/** Give up waiting for the decoder. */
+export const SEEK_TIMEOUT_MS = 250;
+/** Clock has started once currentTime leaves the assigned value. */
+export const CLOCK_MOVE_SECONDS = 0.015;
+/** After the clock is running, snap again if still this far off. */
+export const START_SNAP_SECONDS = 0.08;
+/** While locked, only resync if drift stays this large. */
+export const LOCKED_RESYNC_SECONDS = 0.22;
+/** Don't resync again until this long after the last seek. */
+export const RESYNC_COOLDOWN_MS = 700;
+/** How long the decoder typically sits still after play(). */
+export const DEFAULT_PREROLL_SECONDS = 0.2;
+export const MIN_PREROLL_SECONDS = 0.08;
+export const MAX_PREROLL_SECONDS = 0.35;
 
 export interface AudioSyncInput {
   now: number;
@@ -30,145 +26,137 @@ export interface AudioSyncInput {
   audioTime: number;
   seeking: boolean;
   readyState: number;
+  paused: boolean;
   hard: boolean;
   phase: AudioSyncPhase;
   lastSeekAt: number;
   lastAssigned: number;
-  catchUpArmed: boolean;
   clockMoved: boolean;
-  correcting: boolean;
-  rate: number;
+  preroll: number;
+  resyncs: number;
 }
 
 export interface AudioSyncPlan {
-  action: 'none' | 'seek' | 'slew';
+  action: 'none' | 'seek' | 'play';
   seekTo?: number;
-  targetRate: number;
   mode: AudioSyncMode;
   phase: AudioSyncPhase;
   lastSeekAt: number;
   lastAssigned: number;
-  catchUpArmed: boolean;
   clockMoved: boolean;
-  correcting: boolean;
+  preroll: number;
+  resyncs: number;
   event?: string;
   holdMs: number;
 }
 
-function targetRateForDrift(drift: number): number {
-  const adj = Math.max(-MAX_TARGET_RATE_DELTA, Math.min(MAX_TARGET_RATE_DELTA, drift / RATE_DRIFT_SPAN_SECONDS));
-  return 1 - adj;
+function keep(input: AudioSyncInput, overrides: Partial<AudioSyncPlan>): AudioSyncPlan {
+  return {
+    action: 'none',
+    mode: 'hold',
+    phase: input.phase,
+    lastSeekAt: input.lastSeekAt,
+    lastAssigned: input.lastAssigned,
+    clockMoved: input.clockMoved,
+    preroll: input.preroll,
+    resyncs: input.resyncs,
+    holdMs: Math.max(0, SEEK_HOLD_MS - (input.now - input.lastSeekAt)),
+    ...overrides,
+  };
+}
+
+function decoderReady(input: AudioSyncInput): boolean {
+  const elapsed = input.now - input.lastSeekAt;
+  return elapsed >= SEEK_TIMEOUT_MS || (elapsed >= SEEK_HOLD_MS && !input.seeking && input.readyState >= 2);
 }
 
 export function planAudioSync(input: AudioSyncInput): AudioSyncPlan {
   const drift = input.audioTime - input.mediaTime;
   const abs = Math.abs(drift);
-  const holdMs = Math.max(0, SEEK_HOLD_MS - (input.now - input.lastSeekAt));
+  const moved = input.clockMoved || Math.abs(input.audioTime - input.lastAssigned) >= CLOCK_MOVE_SECONDS;
+  const preroll = Math.max(MIN_PREROLL_SECONDS, Math.min(MAX_PREROLL_SECONDS, input.preroll || DEFAULT_PREROLL_SECONDS));
 
-  if (input.hard || abs >= HARD_SEEK_SECONDS) {
-    return {
+  if (input.hard || (input.phase === 'locked' && abs >= HARD_SEEK_SECONDS)) {
+    return keep(input, {
       action: 'seek',
       seekTo: input.mediaTime,
-      targetRate: 1,
       mode: 'seek',
-      phase: 'settling',
+      phase: 'seeking',
       lastSeekAt: input.now,
       lastAssigned: input.mediaTime,
-      catchUpArmed: true,
       clockMoved: false,
-      correcting: false,
+      resyncs: 0,
       event: input.hard ? 'hard-seek' : 'drift-seek',
       holdMs: SEEK_HOLD_MS,
-    };
+    });
   }
 
-  const moved = input.clockMoved || Math.abs(input.audioTime - input.lastAssigned) >= CLOCK_MOVE_SECONDS;
-  const elapsed = input.now - input.lastSeekAt;
-  const decoderReady = !input.seeking && input.readyState >= 2;
-  const waited = elapsed >= SEEK_HOLD_MS;
-  const timedOut = elapsed >= SETTLE_TIMEOUT_MS;
-  const ready = timedOut || (waited && decoderReady);
+  if (input.phase === 'seeking') {
+    if (!decoderReady(input)) {
+      return keep(input, { mode: 'hold', clockMoved: moved });
+    }
+    return keep(input, {
+      action: 'seek',
+      seekTo: input.mediaTime + preroll,
+      mode: 'seek',
+      phase: 'starting',
+      lastSeekAt: input.now,
+      lastAssigned: input.mediaTime + preroll,
+      clockMoved: false,
+      event: 'preroll',
+      holdMs: 0,
+    });
+  }
 
-  if (input.phase === 'settling') {
-    if (input.catchUpArmed && ready && abs >= CATCHUP_SECONDS) {
-      return {
+  if (input.phase === 'starting') {
+    if (!moved && input.now - input.lastSeekAt < 400) {
+      return keep(input, { mode: 'start', action: 'play', clockMoved: false, holdMs: 0 });
+    }
+
+    if (moved && abs >= START_SNAP_SECONDS && input.resyncs < 1) {
+      return keep(input, {
         action: 'seek',
         seekTo: input.mediaTime,
-        targetRate: 1,
         mode: 'seek',
-        phase: 'settling',
+        phase: 'seeking',
         lastSeekAt: input.now,
         lastAssigned: input.mediaTime,
-        catchUpArmed: false,
         clockMoved: false,
-        correcting: false,
-        event: 'catchup',
+        resyncs: input.resyncs + 1,
+        event: 'start-snap',
         holdMs: SEEK_HOLD_MS,
-      };
+      });
     }
 
-    if (ready && (!input.catchUpArmed || abs < CATCHUP_SECONDS)) {
-      return {
-        action: 'none',
-        targetRate: 1,
-        mode: 'locked',
-        phase: 'locked',
-        lastSeekAt: input.lastSeekAt,
-        lastAssigned: input.lastAssigned,
-        catchUpArmed: false,
-        clockMoved: moved,
-        correcting: false,
-        holdMs: 0,
-      };
-    }
-
-    return {
-      action: 'none',
-      targetRate: 1,
-      mode: 'hold',
-      phase: 'settling',
-      lastSeekAt: input.lastSeekAt,
-      lastAssigned: input.lastAssigned,
-      catchUpArmed: input.catchUpArmed,
+    return keep(input, {
+      action: 'play',
+      mode: 'locked',
+      phase: 'locked',
       clockMoved: moved,
-      correcting: false,
-      holdMs,
-    };
-  }
-
-  let correcting = input.correcting;
-  if (!correcting && abs >= RATE_ENTER_SECONDS) {
-    correcting = true;
-  } else if (correcting && abs <= RATE_EXIT_SECONDS) {
-    correcting = false;
-  }
-
-  if (correcting) {
-    return {
-      action: 'slew',
-      targetRate: targetRateForDrift(drift),
-      mode: 'rate',
-      phase: 'rate',
-      lastSeekAt: input.lastSeekAt,
-      lastAssigned: input.lastAssigned,
-      catchUpArmed: false,
-      clockMoved: moved,
-      correcting: true,
       holdMs: 0,
-    };
+    });
   }
 
-  const stillSlewing = Math.abs(input.rate - 1) >= RATE_WRITE_EPSILON;
-  return {
-    action: stillSlewing ? 'slew' : 'none',
-    targetRate: 1,
-    mode: stillSlewing ? 'rate' : 'locked',
+  if (abs >= LOCKED_RESYNC_SECONDS && input.now - input.lastSeekAt >= RESYNC_COOLDOWN_MS) {
+    return keep(input, {
+      action: 'seek',
+      seekTo: input.mediaTime,
+      mode: 'seek',
+      phase: 'seeking',
+      lastSeekAt: input.now,
+      lastAssigned: input.mediaTime,
+      clockMoved: false,
+      resyncs: 0,
+      event: 'locked-resync',
+      holdMs: SEEK_HOLD_MS,
+    });
+  }
+
+  return keep(input, {
+    action: 'play',
+    mode: 'locked',
     phase: 'locked',
-    lastSeekAt: input.lastSeekAt,
-    lastAssigned: input.lastAssigned,
-    catchUpArmed: false,
     clockMoved: moved,
-    correcting: false,
     holdMs: 0,
-  };
+  });
 }

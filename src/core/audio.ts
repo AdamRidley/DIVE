@@ -2,8 +2,9 @@ import { AudioClip, AudioRole, Overlay, Scene, Story, StoryAudio } from './types
 import { resolveLocalized } from './locale';
 import {
   AudioSyncPhase,
-  MAX_RATE_CHANGE_PER_SECOND,
-  RATE_WRITE_EPSILON,
+  DEFAULT_PREROLL_SECONDS,
+  MAX_PREROLL_SECONDS,
+  MIN_PREROLL_SECONDS,
   planAudioSync,
 } from './audio-sync-plan';
 
@@ -118,28 +119,11 @@ interface ManagedClip {
   lastDrift: number;
   lastTarget: number;
   lastAssigned: number;
-  rate: number;
-  lastRateAt: number;
-  correcting: boolean;
   phase: AudioSyncPhase;
-  catchUpArmed: boolean;
   clockMoved: boolean;
-}
-
-function applySlewedRate(clip: ManagedClip, targetRate: number, now: number): void {
-  const previous = clip.lastRateAt || now;
-  const dt = Math.max(0, Math.min(0.25, (now - previous) / 1000));
-  clip.lastRateAt = now;
-  const maxStep = MAX_RATE_CHANGE_PER_SECOND * dt;
-  const delta = targetRate - clip.rate;
-  const step = Math.max(-maxStep, Math.min(maxStep, delta));
-  clip.rate += step;
-  if (Math.abs(clip.rate - 1) < RATE_WRITE_EPSILON && Math.abs(targetRate - 1) < RATE_WRITE_EPSILON) {
-    clip.rate = 1;
-  }
-  if (Math.abs(clip.element.playbackRate - clip.rate) >= RATE_WRITE_EPSILON) {
-    clip.element.playbackRate = clip.rate;
-  }
+  preroll: number;
+  resyncs: number;
+  playAt: number;
 }
 
 export interface AudioSyncDebug {
@@ -151,7 +135,8 @@ export interface AudioSyncDebug {
   targetRatePercent: number;
   seeking: boolean;
   holdMs: number;
-  mode: 'idle' | 'locked' | 'rate' | 'seek' | 'hold';
+  mode: 'idle' | 'locked' | 'seek' | 'hold' | 'start';
+  prerollMs: number;
 }
 
 export interface AudioSyncLogRow {
@@ -206,12 +191,11 @@ export class AudioEngine {
         lastDrift: 0,
         lastTarget: 0,
         lastAssigned: 0,
-        rate: 1,
-        lastRateAt: 0,
-        correcting: false,
         phase: 'locked',
-        catchUpArmed: false,
         clockMoved: false,
+        preroll: DEFAULT_PREROLL_SECONDS,
+        resyncs: 0,
+        playAt: 0,
       };
     });
   }
@@ -262,12 +246,9 @@ export class AudioEngine {
         if (!clip.element.paused) {
           clip.element.pause();
         }
-        clip.rate = 1;
-        clip.lastRateAt = now;
-        clip.correcting = false;
         clip.phase = 'locked';
-        clip.catchUpArmed = false;
         clip.clockMoved = false;
+        clip.resyncs = 0;
         if (clip.element.playbackRate !== 1) {
           clip.element.playbackRate = 1;
         }
@@ -278,7 +259,6 @@ export class AudioEngine {
 
       let mode: AudioSyncDebug['mode'] = 'locked';
       let drift = 0;
-      let targetRate = 1;
       let holdLeft = 0;
 
       if (Number.isFinite(mediaTime) && mediaTime >= 0 && clip.element.readyState >= 1) {
@@ -300,23 +280,31 @@ export class AudioEngine {
           audioTime,
           seeking: clip.element.seeking,
           readyState: clip.element.readyState,
+          paused: clip.element.paused,
           hard: Boolean(options.hard),
           phase: clip.phase,
           lastSeekAt: clip.lastSeekAt,
           lastAssigned: clip.lastAssigned,
-          catchUpArmed: clip.catchUpArmed,
           clockMoved: clip.clockMoved,
-          correcting: clip.correcting,
-          rate: clip.rate,
+          preroll: clip.preroll,
+          resyncs: clip.resyncs,
         });
+
+        if (!clip.clockMoved && plan.clockMoved && clip.playAt) {
+          const startup = (now - clip.playAt) / 1000;
+          if (startup > 0.04 && startup < 0.5) {
+            clip.preroll = Math.max(
+              MIN_PREROLL_SECONDS,
+              Math.min(MAX_PREROLL_SECONDS, clip.preroll * 0.55 + startup * 0.45),
+            );
+          }
+        }
 
         clip.phase = plan.phase;
         clip.lastSeekAt = plan.lastSeekAt;
         clip.lastAssigned = plan.lastAssigned;
-        clip.catchUpArmed = plan.catchUpArmed;
         clip.clockMoved = plan.clockMoved;
-        clip.correcting = plan.correcting;
-        targetRate = plan.targetRate;
+        clip.resyncs = plan.resyncs;
         mode = plan.mode;
         holdLeft = plan.holdMs;
         if (plan.event) {
@@ -329,8 +317,6 @@ export class AudioEngine {
               clip.element.pause();
             }
             clip.element.currentTime = plan.seekTo;
-            clip.rate = 1;
-            clip.lastRateAt = now;
             if (clip.element.playbackRate !== 1) {
               clip.element.playbackRate = 1;
             }
@@ -338,10 +324,6 @@ export class AudioEngine {
           } catch {
             mode = 'hold';
           }
-        } else if (plan.action === 'slew') {
-          applySlewedRate(clip, targetRate, now);
-        } else if (Math.abs(clip.rate - 1) >= RATE_WRITE_EPSILON) {
-          applySlewedRate(clip, 1, now);
         }
       }
 
@@ -349,11 +331,14 @@ export class AudioEngine {
       clip.lastTarget = mediaTime;
       clip.element.volume = clip.spec.volume * this.masterVolume;
       clip.element.muted = this.muted;
-      const settling = clip.phase === 'settling';
-      if (settling && !clip.element.paused) {
+      const shouldPlay = clip.phase === 'starting' || clip.phase === 'locked';
+      if (!shouldPlay && !clip.element.paused) {
         clip.element.pause();
       }
-      if (!settling && clip.element.paused && !clip.playLock) {
+      if (shouldPlay && clip.element.paused && !clip.playLock) {
+        if (!clip.playAt || clip.phase === 'starting') {
+          clip.playAt = now;
+        }
         const playAttempt = clip.element.play();
         if (playAttempt) {
           clip.playLock = playAttempt.then(() => {
@@ -371,13 +356,14 @@ export class AudioEngine {
           targetSeconds: mediaTime,
           audioSeconds: clip.element.currentTime,
           driftMs: drift * 1000,
-          ratePercent: clip.rate * 100,
-          targetRatePercent: targetRate * 100,
+          ratePercent: 100,
+          targetRatePercent: 100,
           seeking: clip.element.seeking,
           holdMs: holdLeft,
           mode,
+          prerollMs: clip.preroll * 1000,
         };
-        this.maybeLogSample(now, storyTimeMs, playing, options, clip, mediaTime, drift, targetRate, mode, holdLeft);
+        this.maybeLogSample(now, storyTimeMs, playing, options, clip, mediaTime, drift, mode, holdLeft);
       }
     }
 
@@ -395,13 +381,12 @@ export class AudioEngine {
     clip: ManagedClip,
     mediaTime: number,
     drift: number,
-    targetRate: number,
     mode: AudioSyncDebug['mode'],
     holdLeft: number,
   ): void {
     const event = [this.pendingEvent, options.event].filter(Boolean).join('+') || undefined;
     this.pendingEvent = undefined;
-    const noteworthy = Boolean(event || options.hard || mode === 'seek' || mode === 'hold');
+    const noteworthy = Boolean(event || options.hard || mode === 'seek' || mode === 'hold' || mode === 'start');
     if (!noteworthy && now - this.lastLogAt < LOG_SAMPLE_MS) {
       return;
     }
@@ -416,14 +401,14 @@ export class AudioEngine {
       targetS: mediaTime,
       audioS: clip.element.currentTime,
       driftMs: drift * 1000,
-      ratePct: clip.rate * 100,
-      targetRatePct: targetRate * 100,
+      ratePct: 100,
+      targetRatePct: Math.round(clip.preroll * 1000),
       mode,
       holdMs: holdLeft,
       seeking: clip.element.seeking,
       readyState: clip.element.readyState,
       paused: clip.element.paused,
-      correcting: clip.correcting,
+      correcting: false,
     });
   }
 
