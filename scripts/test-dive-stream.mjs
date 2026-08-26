@@ -108,8 +108,17 @@ if (!prefixNames.includes('dive.json') || !prefixNames.includes('story.json')) {
   console.error('prefix should include dive.json and story.json', prefixNames);
   process.exit(1);
 }
-if (prefixNames.some((name) => name.startsWith('tools/'))) {
+const sceneToolNames = [
+  'tools/lifespan-lines.html',
+  'tools/rosling-bubbles.html',
+  'tools/population-blocks.html',
+];
+if (prefixNames.some((name) => sceneToolNames.includes(name))) {
   console.error('prefix should not include scene tools', prefixNames);
+  process.exit(1);
+}
+if (!prefixNames.includes('tools/dive-lang.js')) {
+  console.error('prefix should include shared tool helpers', prefixNames);
   process.exit(1);
 }
 

@@ -8,7 +8,7 @@ This is a library + demo monorepo, not an app server. Do not treat `examples/` a
 
 - TypeScript 5, Vite 8, Lit 3, D3 7
 - Custom element: `dive-video` (Shadow DOM)
-- Node 20 in CI; local Node 22 is fine
+- Node 22 in CI and locally
 - Install: `npm ci` (lockfile is required in CI)
 
 ```bash
