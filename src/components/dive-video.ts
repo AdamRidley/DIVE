@@ -294,25 +294,36 @@ export class DiveVideo extends LitElement {
     }
     .corner-btn.chapters { left: 10px; }
     .corner-btn.settings { right: 10px; }
-    .icon-btn {
+    button.icon-btn {
       background: transparent;
-      padding: 6px;
-      margin-left: 8px;
-      margin-right: 0;
-      display: flex;
+      color: #fff;
+      padding: 0;
+      margin: 0 0 0 6px;
+      width: 40px;
+      height: 40px;
+      min-width: 40px;
+      border: 0;
+      border-radius: 8px;
+      display: inline-flex;
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      color: #fff;
+      cursor: pointer;
     }
-    .icon-btn[aria-pressed="true"] {
+    button.icon-btn:hover {
       background: rgba(255, 255, 255, 0.16);
     }
-    .icon-btn svg {
-      width: 22px;
-      height: 22px;
-      fill: currentColor;
+    button.icon-btn svg {
+      width: 24px;
+      height: 24px;
+      fill: #fff;
       display: block;
+      flex: none;
+    }
+    button.icon-btn.corner-btn {
+      position: absolute;
+      margin: 0;
+      background: rgba(0, 0, 0, 0.55);
     }
     button {
       background: #444;
@@ -1226,7 +1237,16 @@ export class DiveVideo extends LitElement {
       ` : ''}
 
       <div class="controls ${chromeHidden ? 'hidden' : ''}" part="controls">
-        <button @click=${this.togglePlay}>${this.isPlaying ? 'Pause' : 'Play'}</button>
+        <button
+          class="icon-btn"
+          @click=${this.togglePlay}
+          title="${this.isPlaying ? 'Pause' : 'Play'}"
+          aria-label="${this.isPlaying ? 'Pause' : 'Play'}"
+        >
+          ${this.isPlaying
+            ? html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>`
+            : html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M8 5v14l11-7z"/></svg>`}
+        </button>
         
         <div class="scrubber" part="scrubber" @pointerdown=${this.handleScrubPointerDown}>
           ${timelineSections.map((section, index) => {
@@ -1293,11 +1313,9 @@ export class DiveVideo extends LitElement {
         ` : ''}
 
         <button class="icon-btn" @click=${this.toggleFullscreen} title="Toggle Fullscreen" aria-label="Toggle Fullscreen">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            ${this.isFullscreen 
-              ? html`<path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>` 
-              : html`<path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>`}
-          </svg>
+          ${this.isFullscreen
+            ? html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>`
+            : html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`}
         </button>
       </div>
 
