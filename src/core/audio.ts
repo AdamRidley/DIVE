@@ -1,5 +1,11 @@
 import { AudioClip, AudioRole, Overlay, Scene, Story, StoryAudio } from './types';
 import { resolveLocalized } from './locale';
+import {
+  AudioSyncPhase,
+  MAX_RATE_CHANGE_PER_SECOND,
+  RATE_WRITE_EPSILON,
+  planAudioSync,
+} from './audio-sync-plan';
 
 export interface NormalizedAudioClip {
   id: string;
@@ -111,27 +117,14 @@ interface ManagedClip {
   lastSeekAt: number;
   lastDrift: number;
   lastTarget: number;
+  lastAssigned: number;
   rate: number;
   lastRateAt: number;
   correcting: boolean;
+  phase: AudioSyncPhase;
+  catchUpArmed: boolean;
+  clockMoved: boolean;
 }
-
-/** Start rate-correcting only once drift is clearly worth it. */
-const RATE_ENTER_SECONDS = 0.18;
-/** Stop correcting once back inside this band (hysteresis vs enter). */
-const RATE_EXIT_SECONDS = 0.08;
-/** Drift that maps to the max target-rate offset (wider = gentler). */
-const RATE_DRIFT_SPAN_SECONDS = 4;
-/** Cap on |target playbackRate - 1|. */
-const MAX_TARGET_RATE_DELTA = 0.12;
-/** How fast the applied rate may move toward the target. */
-const MAX_RATE_CHANGE_PER_SECOND = 0.01;
-/** Don't poke the decoder for tinier rate writes than this. */
-const RATE_WRITE_EPSILON = 0.001;
-/** Only hard-seek for a real jump (scrub / scene skip). */
-const HARD_SEEK_SECONDS = 1.25;
-/** Ignore further seeks after a jump while the decoder settles. */
-const SEEK_HOLD_MS = 100;
 
 function applySlewedRate(clip: ManagedClip, targetRate: number, now: number): void {
   const previous = clip.lastRateAt || now;
@@ -205,7 +198,21 @@ export class AudioEngine {
       element.playbackRate = 1;
       element.volume = spec.volume * this.masterVolume;
       element.muted = this.muted;
-      return { spec, element, playLock: null, lastSeekAt: 0, lastDrift: 0, lastTarget: 0, rate: 1, lastRateAt: 0, correcting: false };
+      return {
+        spec,
+        element,
+        playLock: null,
+        lastSeekAt: 0,
+        lastDrift: 0,
+        lastTarget: 0,
+        lastAssigned: 0,
+        rate: 1,
+        lastRateAt: 0,
+        correcting: false,
+        phase: 'locked',
+        catchUpArmed: false,
+        clockMoved: false,
+      };
     });
   }
 
@@ -258,6 +265,9 @@ export class AudioEngine {
         clip.rate = 1;
         clip.lastRateAt = now;
         clip.correcting = false;
+        clip.phase = 'locked';
+        clip.catchUpArmed = false;
+        clip.clockMoved = false;
         if (clip.element.playbackRate !== 1) {
           clip.element.playbackRate = 1;
         }
@@ -269,56 +279,69 @@ export class AudioEngine {
       let mode: AudioSyncDebug['mode'] = 'locked';
       let drift = 0;
       let targetRate = 1;
-      const holdLeft = Math.max(0, SEEK_HOLD_MS - (now - clip.lastSeekAt));
+      let holdLeft = 0;
 
       if (Number.isFinite(mediaTime) && mediaTime >= 0 && clip.element.readyState >= 1) {
-        drift = clip.element.currentTime - mediaTime;
+        let audioTime = clip.element.currentTime;
+        drift = audioTime - mediaTime;
         if (clip.spec.loop && Number.isFinite(duration) && duration > 0) {
-          if (drift > duration / 2) drift -= duration;
-          if (drift < -duration / 2) drift += duration;
+          if (drift > duration / 2) {
+            drift -= duration;
+            audioTime -= duration;
+          } else if (drift < -duration / 2) {
+            drift += duration;
+            audioTime += duration;
+          }
         }
 
-        const shouldHard = options.hard || Math.abs(drift) >= HARD_SEEK_SECONDS;
-        if (shouldHard && holdLeft <= 0) {
+        const plan = planAudioSync({
+          now,
+          mediaTime,
+          audioTime,
+          seeking: clip.element.seeking,
+          readyState: clip.element.readyState,
+          hard: Boolean(options.hard),
+          phase: clip.phase,
+          lastSeekAt: clip.lastSeekAt,
+          lastAssigned: clip.lastAssigned,
+          catchUpArmed: clip.catchUpArmed,
+          clockMoved: clip.clockMoved,
+          correcting: clip.correcting,
+          rate: clip.rate,
+        });
+
+        clip.phase = plan.phase;
+        clip.lastSeekAt = plan.lastSeekAt;
+        clip.lastAssigned = plan.lastAssigned;
+        clip.catchUpArmed = plan.catchUpArmed;
+        clip.clockMoved = plan.clockMoved;
+        clip.correcting = plan.correcting;
+        targetRate = plan.targetRate;
+        mode = plan.mode;
+        holdLeft = plan.holdMs;
+        if (plan.event) {
+          this.markEvent(plan.event);
+        }
+
+        if (plan.action === 'seek' && plan.seekTo !== undefined) {
           try {
-            clip.element.currentTime = mediaTime;
+            if (!clip.element.paused) {
+              clip.element.pause();
+            }
+            clip.element.currentTime = plan.seekTo;
             clip.rate = 1;
             clip.lastRateAt = now;
-            clip.correcting = false;
             if (clip.element.playbackRate !== 1) {
               clip.element.playbackRate = 1;
             }
-            clip.lastSeekAt = now;
-            drift = 0;
-            targetRate = 1;
-            mode = 'seek';
+            drift = clip.element.currentTime - mediaTime;
           } catch {
             mode = 'hold';
           }
-        } else if (holdLeft > 0) {
-          targetRate = 1;
-          clip.correcting = false;
-          mode = 'hold';
-        } else {
-          const abs = Math.abs(drift);
-          if (!clip.correcting && abs >= RATE_ENTER_SECONDS) {
-            clip.correcting = true;
-          } else if (clip.correcting && abs <= RATE_EXIT_SECONDS) {
-            clip.correcting = false;
-          }
-
-          if (clip.correcting) {
-            const adj = Math.max(-MAX_TARGET_RATE_DELTA, Math.min(MAX_TARGET_RATE_DELTA, drift / RATE_DRIFT_SPAN_SECONDS));
-            targetRate = 1 - adj;
-            mode = 'rate';
-          } else {
-            targetRate = 1;
-            mode = Math.abs(clip.rate - 1) < RATE_WRITE_EPSILON ? 'locked' : 'rate';
-          }
-        }
-
-        if (mode !== 'seek' && (clip.correcting || Math.abs(clip.rate - 1) >= RATE_WRITE_EPSILON || Math.abs(targetRate - 1) >= RATE_WRITE_EPSILON)) {
+        } else if (plan.action === 'slew') {
           applySlewedRate(clip, targetRate, now);
+        } else if (Math.abs(clip.rate - 1) >= RATE_WRITE_EPSILON) {
+          applySlewedRate(clip, 1, now);
         }
       }
 
@@ -326,7 +349,11 @@ export class AudioEngine {
       clip.lastTarget = mediaTime;
       clip.element.volume = clip.spec.volume * this.masterVolume;
       clip.element.muted = this.muted;
-      if (clip.element.paused && !clip.playLock) {
+      const settling = clip.phase === 'settling';
+      if (settling && !clip.element.paused) {
+        clip.element.pause();
+      }
+      if (!settling && clip.element.paused && !clip.playLock) {
         const playAttempt = clip.element.play();
         if (playAttempt) {
           clip.playLock = playAttempt.then(() => {
