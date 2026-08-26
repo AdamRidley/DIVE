@@ -865,6 +865,7 @@
       buildIndices(dataModel);
       setupSvg();
       renderYear(false);
+      window.parent?.postMessage({ type: 'DIVE_READY', source: 'rosling-bubbles' }, '*');
     }
 
     yearSlider.on('pointerdown', () => {
@@ -949,7 +950,7 @@
       if (!dataModel) {
         bootstrapStandalone();
       }
-    }, 180);
+    }, 1500);
   </script>
 </body>
 </html>
