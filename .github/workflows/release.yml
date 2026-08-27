@@ -51,18 +51,19 @@ jobs:
           tar -czf dist.tar.gz dist
           tar -czf dist-example.tar.gz dist-example
 
-      - name: Publish GitHub release assets
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist.tar.gz
-            dist-example.tar.gz
-
       - name: Publish to npm
         if: startsWith(github.ref, 'refs/tags/v')
         run: npm publish --access public --provenance --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ""
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          files: |
+            dist.tar.gz
+            dist-example.tar.gz
 
   publish-image:
     runs-on: ubuntu-latest
