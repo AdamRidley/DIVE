@@ -1,6 +1,6 @@
 {
   "name": "dive-video",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "DIVE is a framework for creating Interruptible Narrative Visualizations (INV). A <dive-video> web component that bridges curated data stories and interactive exploration.",
   "type": "module",
   "main": "./dist/dive.js",
