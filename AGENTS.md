@@ -20,6 +20,7 @@ npm run check:dist          # smoke-check published files exist
 npm run test:ci             # typecheck + validate stories + build + check:dist
 npm run build:example       # Wealth and Health demo → dist-example/
 npm run pack:dive -- path/to/story.json -o story.dive
+npm run build:pages          # dist-pages/ for GitHub Pages (CDN player + wealth.dive)
 # <dive-video src="./story.dive"></dive-video>  — see docs/dive-pack.md
 
 ```
@@ -48,6 +49,7 @@ npm run build:wealth-health-data   # regenerate Gapminder JSON from raw CSVs
 - `examples/the_wealth_and_health_of_nations/` — Gapminder demo (iframe tools, Docker)
 - `.github/workflows/ci.yml` — PR/`main`: `npm run test:ci` + example Docker smoke
 - `.github/workflows/release.yml` — tag `v*.*.*`: GitHub Release tarballs, npm publish, example image
+- `.github/workflows/pages.yml` — `main`: GitHub Pages demo (jsDelivr `dive-video` + `wealth.dive`)
 
 ## Conventions
 
@@ -88,6 +90,8 @@ Release path (already in Actions — do not invent a parallel one):
 3. `release.yml` builds, attaches `dist.tar.gz` + `dist-example.tar.gz`, `npm publish`, pushes the example image
 
 Requires npm trusted publishing on `dive-video` for GitHub Actions workflow `release.yml` in `AdamRidley/DIVE` (OIDC, no `NPM_TOKEN`).
+
+Public demo: https://adamridley.github.io/DIVE/ — Pages site from `pages.yml`. Player is the published CDN build (`package.json` version); the story pack is rebuilt from `examples/the_wealth_and_health_of_nations/` on each `main` push. Do not bundle `dist/dive.js` into Pages.
 
 ## Pitfalls
 

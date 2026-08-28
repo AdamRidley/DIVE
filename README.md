@@ -38,9 +38,13 @@ import { registerTool } from 'dive-video';
 
 After a version is published to npm, jsDelivr and unpkg serve it automatically:
 
+Live demo (GitHub Pages): https://adamridley.github.io/DIVE/
+
+The demo loads `dive-video` from jsDelivr and plays a same-origin `wealth.dive` pack.
+
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/npm/dive-video@1.0.0/dist/dive.js"></script>
-<dive-video src="./story.json"></dive-video>
+<script type="module" src="https://cdn.jsdelivr.net/npm/dive-video@1.2.1/dist/dive.js"></script>
+<dive-video src="./wealth.dive"></dive-video>
 ```
 
 Classic (non-module) script tag:
@@ -79,6 +83,10 @@ This repository now includes two GitHub Actions workflows:
 - Installs dependencies with `npm ci`.
 - Runs `npm run test:ci` (typecheck + production build).
 - Performs a Docker smoke build for `examples/the_wealth_and_health_of_nations/Dockerfile`.
+
+- `.github/workflows/pages.yml`
+- Runs on pushes to `main` and on manual dispatch.
+- Packs `wealth.dive` and deploys a static demo to GitHub Pages (CDN player + same-origin pack).
 
 - `.github/workflows/release.yml`
 - Runs on tags matching `v*.*.*` and on manual dispatch.
