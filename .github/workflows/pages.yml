@@ -17,6 +17,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.repository == 'AdamRidley/DIVE'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
