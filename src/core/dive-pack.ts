@@ -29,6 +29,35 @@ function normalizePackPath(value: string): string {
   return value.replace(/^\.\//, '').replace(/^\/+/, '');
 }
 
+const MIME_TYPES: Record<string, string> = {
+  html: 'text/html',
+  htm: 'text/html',
+  js: 'text/javascript',
+  mjs: 'text/javascript',
+  css: 'text/css',
+  json: 'application/json',
+  geojson: 'application/geo+json',
+  csv: 'text/csv',
+  tsv: 'text/tab-separated-values',
+  txt: 'text/plain',
+  vtt: 'text/vtt',
+  svg: 'image/svg+xml',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+};
+
+// Untyped blobs make browsers render nested HTML (e.g. a tool's modal iframe) as plain text.
+function mimeTypeFor(key: string): string {
+  const dot = key.lastIndexOf('.');
+  return dot < 0 ? '' : MIME_TYPES[key.slice(dot + 1).toLowerCase()] || '';
+}
+
 export function packHas(files: Map<string, Uint8Array>, ref: string): boolean {
   return files.has(normalizePackPath(ref));
 }
@@ -43,7 +72,7 @@ export function blobUrlFor(pack: DivePack, ref: string): string | null {
   if (!bytes) {
     return null;
   }
-  const url = URL.createObjectURL(new Blob([toBlobPart(bytes)]));
+  const url = URL.createObjectURL(new Blob([toBlobPart(bytes)], { type: mimeTypeFor(key) }));
   pack.urls.set(key, url);
   return url;
 }
@@ -190,6 +219,32 @@ window.fetch=function(input, init){
   return `${shim}${withRefs}`;
 }
 
+const shimmedNested = new WeakMap<DivePack, Set<string>>();
+
+function isHtmlKey(key: string): boolean {
+  return /\.html?$/i.test(key);
+}
+
+// Builds the shimmed blob for a packed page. Other packed pages it references (e.g. a modal iframe) are
+// shimmed first so the URL map embedded in this page points at working pages that can resolve their own
+// relative refs.
+function shimmedPageUrl(pack: DivePack, key: string, bytes: Uint8Array, visiting: Set<string>): string {
+  visiting.add(key);
+  const html = decodeText(bytes);
+  let done = shimmedNested.get(pack);
+  if (!done) {
+    done = new Set();
+    shimmedNested.set(pack, done);
+  }
+  for (const [other, otherBytes] of pack.files) {
+    if (!isHtmlKey(other) || visiting.has(other) || done.has(other)) continue;
+    if (!html.includes(other.split('/').pop() as string)) continue;
+    done.add(other);
+    pack.urls.set(other, shimmedPageUrl(pack, other, otherBytes, visiting));
+  }
+  return URL.createObjectURL(new Blob([injectPackShim(html, key, pack.urls)], { type: 'text/html' }));
+}
+
 export function materializePackedTool(pack: DivePack, originalToolPath: string, rewrittenTool: string): string {
   if (!rewrittenTool.startsWith('blob:')) {
     return rewrittenTool;
@@ -202,8 +257,7 @@ export function materializePackedTool(pack: DivePack, originalToolPath: string, 
   if (!bytes) {
     return rewrittenTool;
   }
-  const html = injectPackShim(decodeText(bytes), key, pack.urls);
-  const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  const url = shimmedPageUrl(pack, key, bytes, new Set());
   pack.urls.set(key, url);
   return url;
 }
