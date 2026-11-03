@@ -118,12 +118,12 @@ export class DiveVideo extends LitElement {
       height: 100%;
       aspect-ratio: auto;
     }
-    :host([ui-mode="inset"]) {
+    :host([active-ui-mode="inset"]) {
       display: grid;
       grid-template-rows: 48px minmax(0, 1fr) 56px;
       background: var(--dive-chrome-bg, #111214);
     }
-    :host([ui-mode="inset"]:fullscreen) {
+    :host([active-ui-mode="inset"]:fullscreen) {
       grid-template-rows: 52px minmax(0, 1fr) 64px;
     }
     .video-section {
@@ -135,7 +135,8 @@ export class DiveVideo extends LitElement {
       container-type: size;
       container-name: stage;
     }
-    :host([ui-mode="inset"]) .video-section {
+    :host([active-ui-mode="inset"]) .video-section {
+      grid-row: 2;
       position: relative;
       inset: auto;
       min-width: 0;
@@ -344,7 +345,8 @@ export class DiveVideo extends LitElement {
     .chrome-top {
       display: contents;
     }
-    :host([ui-mode="inset"]) .chrome-top {
+    :host([active-ui-mode="inset"]) .chrome-top {
+      grid-row: 1;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -355,7 +357,7 @@ export class DiveVideo extends LitElement {
     .chrome-top-right {
       display: contents;
     }
-    :host([ui-mode="inset"]) .chrome-top-right {
+    :host([active-ui-mode="inset"]) .chrome-top-right {
       display: flex;
       align-items: center;
       gap: 8px;
@@ -379,7 +381,7 @@ export class DiveVideo extends LitElement {
       opacity: 0;
       pointer-events: none;
     }
-    :host([ui-mode="inset"]) .lang-toggle {
+    :host([active-ui-mode="inset"]) .lang-toggle {
       position: relative;
       top: auto;
       right: auto;
@@ -401,7 +403,8 @@ export class DiveVideo extends LitElement {
       background: var(--dive-accent, rgb(0, 123, 255));
       color: var(--dive-accent-contrast, #fff);
     }
-    :host([ui-mode="inset"]) .controls {
+    :host([active-ui-mode="inset"]) .controls {
+      grid-row: 3;
       position: relative;
       bottom: auto;
       left: auto;
@@ -412,19 +415,19 @@ export class DiveVideo extends LitElement {
       opacity: 1;
       pointer-events: auto;
     }
-    :host([ui-mode="inset"]) .corner-btn,
-    :host([ui-mode="inset"]) button.icon-btn.corner-btn {
+    :host([active-ui-mode="inset"]) .corner-btn,
+    :host([active-ui-mode="inset"]) button.icon-btn.corner-btn {
       position: relative;
       top: auto;
       left: auto;
       right: auto;
       background: rgba(255, 255, 255, 0.08);
     }
-    :host([ui-mode="inset"]) .drawer.chapters {
+    :host([active-ui-mode="inset"]) .drawer.chapters {
       left: 8px;
       top: 50px;
     }
-    :host([ui-mode="inset"]) .drawer.settings {
+    :host([active-ui-mode="inset"]) .drawer.settings {
       right: 8px;
       top: 50px;
     }
@@ -577,9 +580,11 @@ export class DiveVideo extends LitElement {
         detail: { lang: this.playerLang }, bubbles: true, composed: true,
       }));
     }
+    // Reflect the resolved mode for styling only. Writing it to ui-mode would turn it into a
+    // host override that pins every later scene to the first resolved mode.
     const mode = this.activeUiMode();
-    if (this.getAttribute('ui-mode') !== mode) {
-      this.setAttribute('ui-mode', mode);
+    if (this.getAttribute('active-ui-mode') !== mode) {
+      this.setAttribute('active-ui-mode', mode);
     }
     this.applyStageScale();
   }

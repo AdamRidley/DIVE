@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import {
   configurePlayer,
+  resetPlayerConfig,
   resolveLanguageToggle,
   resolvePauseOnInteract,
   themeCss,
 } from '../src/core/config.ts';
 import { playerCopy } from '../src/core/locale.ts';
+import { resolveUiMode } from '../src/core/ui-mode.ts';
 
 const scene = (pauseOnInteract) => ({ id: 's', tool: 't', startTime: 0, endTime: 1, keyframes: [], overlays: [], pauseOnInteract });
 const story = (extra = {}) => ({ title: 'x', duration: 1, scenes: [], ...extra });
@@ -29,6 +31,17 @@ assert.equal(resolvePauseOnInteract(story({ pauseOnInteract: false }), scene(), 
 assert.equal(resolveLanguageToggle(2, story()), 'inline');
 assert.equal(resolveLanguageToggle(2, story({ languageToggle: 'menu' })), 'menu');
 assert.equal(themeCss(), ':host { --dive-accent: #123456; }');
+
+resetPlayerConfig();
+assert.equal(resolvePauseOnInteract(story(), scene(), {}), false);
+assert.equal(resolveLanguageToggle(2, story()), 'menu');
+assert.equal(themeCss(), '');
+
+const insetScene = { ...scene(), uiMode: 'inset' };
+assert.equal(resolveUiMode(story(), insetScene), 'inset');
+assert.equal(resolveUiMode(story(), scene()), 'autohide');
+assert.equal(resolveUiMode(story({ uiMode: 'inset' }), { ...scene(), uiMode: 'autohide' }), 'autohide');
+assert.equal(resolveUiMode(story(), insetScene, 'autohide'), 'autohide');
 
 assert.equal(playerCopy('cy').play, 'Chwarae');
 assert.equal(playerCopy('cy-GB').play, 'Chwarae');

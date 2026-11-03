@@ -31,6 +31,12 @@ export function playerDefaults(): Readonly<PlayerDefaults> {
   return defaults;
 }
 
+/** Clears everything set by `configurePlayer`. Mainly for tests, since defaults are page-wide. */
+export function resetPlayerConfig(): void {
+  defaults = {};
+  themeListeners.forEach((listener) => listener());
+}
+
 export function onThemeChange(listener: () => void): () => void {
   themeListeners.add(listener);
   return () => themeListeners.delete(listener);

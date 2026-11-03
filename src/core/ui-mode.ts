@@ -1,4 +1,4 @@
-import { Scene, Story, UiMode } from './types';
+import type { Scene, Story, UiMode } from './types';
 
 export const DEFAULT_UI_MODE: UiMode = 'autohide';
 
