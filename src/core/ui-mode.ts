@@ -9,11 +9,13 @@ export function parseUiMode(value?: string | null): UiMode | null {
   return null;
 }
 
-/** Element attribute > active scene > story > autohide. */
+/** Element attribute > active scene > story > configured default > autohide. */
 export function resolveUiMode(
   story?: Story | null,
   scene?: Scene | null,
   override?: string | null,
+  fallback?: string | null,
 ): UiMode {
-  return parseUiMode(override) || parseUiMode(scene?.uiMode) || parseUiMode(story?.uiMode) || DEFAULT_UI_MODE;
+  return parseUiMode(override) || parseUiMode(scene?.uiMode) || parseUiMode(story?.uiMode)
+    || parseUiMode(fallback) || DEFAULT_UI_MODE;
 }

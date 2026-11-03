@@ -14,8 +14,10 @@ export class IframeAdapter implements IAdapter {
   private pendingLang: string | null = null;
   private interactCallback: (() => void) | null = null;
   private languageCallback: ((lang: string) => void) | null = null;
+  private navigationCallback: ((sceneId: string, play: boolean) => void) | null = null;
   private readyCallback: (() => void) | null = null;
   private ready = false;
+  private preloading = false;
 
   private messageHandler = (event: MessageEvent) => {
     if (!this.iframe || event.source !== this.iframe.contentWindow) {
@@ -28,7 +30,11 @@ export class IframeAdapter implements IAdapter {
     if (event.data?.type === 'DIVE_LANG' && typeof event.data.lang === 'string') {
       this.languageCallback?.(event.data.lang);
     }
+    if (event.data?.type === 'DIVE_NAVIGATE' && typeof event.data.sceneId === 'string') {
+      this.navigationCallback?.(event.data.sceneId, event.data.play === true);
+    }
     if (event.data?.type === 'DIVE_READY') {
+      this.syncPreloading();
       this.ready = true;
       this.readyCallback?.();
     }
@@ -45,16 +51,15 @@ export class IframeAdapter implements IAdapter {
     this.ready = false;
 
     this.iframe = document.createElement('iframe');
-    this.iframe.src = this.url;
     this.iframe.style.width = '100%';
     this.iframe.style.height = '100%';
     this.iframe.style.border = 'none';
-    this.container.appendChild(this.iframe);
     window.addEventListener('message', this.messageHandler);
 
     // After load, pass the initial data down
     this.iframe.onload = () => {
       this.isLoaded = true;
+      this.syncPreloading();
       const targetWindow = this.iframe?.contentWindow;
       if (!targetWindow) return;
 
@@ -88,6 +93,8 @@ export class IframeAdapter implements IAdapter {
         }, '*');
       }
     };
+    this.iframe.src = this.url;
+    this.container.appendChild(this.iframe);
   }
 
   unmount(): void {
@@ -105,8 +112,10 @@ export class IframeAdapter implements IAdapter {
     this.pendingPlaybackIsPlaying = null;
     this.pendingPlaybackTime = 0;
     this.pendingLang = null;
+    this.preloading = false;
     this.ready = false;
     this.readyCallback = null;
+    this.navigationCallback = null;
   }
 
   setState(state: any, time: number): void {
@@ -157,11 +166,37 @@ export class IframeAdapter implements IAdapter {
     this.languageCallback = callback;
   }
 
+  onNavigate(callback: (sceneId: string, play: boolean) => void): void {
+    this.navigationCallback = callback;
+  }
+
   onReady(callback: () => void): void {
     this.readyCallback = callback;
     if (this.ready) {
       callback();
     }
   }
-}
 
+  hasLoaded(): boolean {
+    return this.isLoaded;
+  }
+
+  setPreloading(preloading: boolean): void {
+    this.preloading = preloading;
+    this.syncPreloading();
+  }
+
+  private syncPreloading(): void {
+    const doc = this.iframe?.contentDocument;
+    if (!doc?.head) return;
+    let style = doc.querySelector<HTMLStyleElement>('style[data-dive-preloading]');
+    if (this.preloading && !style) {
+      style = doc.createElement('style');
+      style.setAttribute('data-dive-preloading', '');
+      style.textContent = '*,*::before,*::after{animation-play-state:paused!important}';
+      doc.head.appendChild(style);
+    } else if (!this.preloading) {
+      style?.remove();
+    }
+  }
+}

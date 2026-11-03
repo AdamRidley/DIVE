@@ -157,8 +157,10 @@ function resolvePackRef(fromFile: string, rel: string): string {
 }
 
 function rewritePackedHtmlRefs(html: string, toolPath: string, urls: Map<string, string>): string {
-  return html.replace(/\b(src|href)=["'](\.\.?\/[^"']+)["']/gi, (match, attr: string, rel: string) => {
-    const key = resolvePackRef(toolPath, rel);
+  return html.replace(/\b(src|href)\s*=\s*["']([^"']+)["']/gi, (match, attr: string, rel: string) => {
+    if (!looksRelativeRef(rel) || rel.startsWith('#')) return match;
+    const path = rel.split(/[?#]/)[0];
+    const key = rel.startsWith('/') ? normalizePackPath(path) : resolvePackRef(toolPath, path);
     const mapped = urls.get(key);
     return mapped ? `${attr}="${mapped}"` : match;
   });
@@ -219,7 +221,7 @@ window.fetch=function(input, init){
   return `${shim}${withRefs}`;
 }
 
-const shimmedNested = new WeakMap<DivePack, Set<string>>();
+const shimmedPages = new WeakMap<DivePack, { fileCount: number; urls: Map<string, string> }>();
 
 function isHtmlKey(key: string): boolean {
   return /\.html?$/i.test(key);
@@ -229,20 +231,24 @@ function isHtmlKey(key: string): boolean {
 // shimmed first so the URL map embedded in this page points at working pages that can resolve their own
 // relative refs.
 function shimmedPageUrl(pack: DivePack, key: string, bytes: Uint8Array, visiting: Set<string>): string {
+  let cache = shimmedPages.get(pack);
+  if (!cache || cache.fileCount !== pack.files.size) {
+    cache = { fileCount: pack.files.size, urls: new Map() };
+    shimmedPages.set(pack, cache);
+  }
+  const existing = cache.urls.get(key);
+  if (existing) return existing;
   visiting.add(key);
   const html = decodeText(bytes);
-  let done = shimmedNested.get(pack);
-  if (!done) {
-    done = new Set();
-    shimmedNested.set(pack, done);
-  }
   for (const [other, otherBytes] of pack.files) {
-    if (!isHtmlKey(other) || visiting.has(other) || done.has(other)) continue;
+    if (!isHtmlKey(other) || visiting.has(other)) continue;
     if (!html.includes(other.split('/').pop() as string)) continue;
-    done.add(other);
     pack.urls.set(other, shimmedPageUrl(pack, other, otherBytes, visiting));
   }
-  return URL.createObjectURL(new Blob([injectPackShim(html, key, pack.urls)], { type: 'text/html' }));
+  const url = URL.createObjectURL(new Blob([injectPackShim(html, key, pack.urls)], { type: 'text/html' }));
+  cache.urls.set(key, url);
+  visiting.delete(key);
+  return url;
 }
 
 export function materializePackedTool(pack: DivePack, originalToolPath: string, rewrittenTool: string): string {
@@ -358,9 +364,7 @@ export class DivePackSession implements DivePack {
     }
     if (entry.name === DIVE_STORY_NAME) {
       this.rawStory = JSON.parse(decodeText(entry.data)) as Story;
-      this.refreshStory();
-    } else if (this.rawStory) {
-      this.refreshStory();
+      this.story = this.rawStory;
     }
     this.flushWaiters();
   }
@@ -448,7 +452,10 @@ export class DivePackSession implements DivePack {
     if (existing) {
       return existing;
     }
-    const job = this.fetchRangeOnce(range);
+    const job = this.fetchRangeOnce(range).catch((error) => {
+      this.rangeJobs.delete(key);
+      throw error;
+    });
     this.rangeJobs.set(key, job);
     return job;
   }
@@ -461,6 +468,7 @@ export class DivePackSession implements DivePack {
       this.supportsRange = true;
     }
     await this.ingestAlignedBytes(result.bytes);
+    if (result.complete) this.markFinished();
   }
 
   private flushWaiters(): void {
@@ -506,13 +514,18 @@ export async function openDivePack(url: string, options: { sceneId?: string } = 
     if (!response.ok) {
       throw new Error(`Failed to load DIVE pack: ${response.status}`);
     }
-    return openDivePackStream(response, undefined, session);
+    const streamed = await openDivePackStream(response, undefined, session);
+    await streamed.waitFor([DIVE_STORY_NAME]);
+    await streamed.waitFor(filesNeededToStart(streamed.manifest, options.sceneId));
+    streamed.refreshStory();
+    return streamed;
   }
 
   await session.ingestAlignedBytes(probe.bytes);
 
   if (probe.complete && !probe.ranged) {
     session.markFinished();
+    session.refreshStory();
     return session;
   }
 
@@ -522,7 +535,11 @@ export async function openDivePack(url: string, options: { sceneId?: string } = 
     if (!response.ok) {
       throw new Error(`Failed to load DIVE pack: ${response.status}`);
     }
-    return openDivePackStream(response, undefined, session);
+    const streamed = await openDivePackStream(response, undefined, session);
+    await streamed.waitFor([DIVE_STORY_NAME]);
+    await streamed.waitFor(filesNeededToStart(streamed.manifest, options.sceneId));
+    streamed.refreshStory();
+    return streamed;
   }
 
   const prefix = prefixRange(session.manifest);
@@ -536,6 +553,7 @@ export async function openDivePack(url: string, options: { sceneId?: string } = 
     await session.prioritizeScene(startId);
   }
   await session.waitFor(filesNeededToStart(session.manifest, startId));
+  session.refreshStory();
   session.backfillScenes(startId);
   return session;
 }
@@ -578,6 +596,8 @@ export async function openDivePackStream(response: Response, onEntry?: (name: st
         session.addEntry(entry);
         onEntry?.(entry.name);
       }
+    } catch (error) {
+      console.error('Failed to stream DIVE pack:', error);
     } finally {
       session.markFinished();
     }

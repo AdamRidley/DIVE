@@ -36,6 +36,15 @@ The player does **not** download the whole file first.
 2. `Range` `[0, prefixEnd)` for `story.json` + video-wide audio/captions/data
 3. `Range` the current scene’s `offset`/`length` — so `?scene=phase-3` (or a seek to that scene) can skip scenes 1–2
 4. Backfill skipped scenes in the background
+5. Mount and initialize the next scene in a hidden, full-size container while the
+   current scene plays. Its data, scripts and `DIVE_READY` handshake complete before
+   it is shown. The same iframe is revealed at the transition, without reloading it.
+
+Only the active scene and the next scene stay mounted. Seeking discards obsolete
+preloads, and late loads cannot replace the newly selected scene. If a scene is
+not ready, the story clock and audio wait together. A page that loads but never sends
+`DIVE_READY` is shown after 8 seconds with a console warning; a page that does not load
+is reported with a retry action.
 
 If the host ignores `Range` (HTTP 200), it falls back to a sequential stream. Same-origin Vite and most CDNs (jsDelivr, unpkg) support byte ranges. Cross-origin hosts must allow the `Range` header.
 
@@ -46,6 +55,9 @@ If the host ignores `Range` (HTTP 200), it falls back to a sequential stream. Sa
 ```
 
 HTML tools get a small fetch/`URL` shim so relative loads like `../data/foo.json` resolve inside the pack. External absolute URLs are unchanged.
+Bare local references such as `src="dive-lang.js"` and dependencies of nested pages
+are also packed and rewritten. Materialized pages are reused until more pack files
+arrive, at which point their dependency maps are refreshed.
 
 ## `dive.json`
 

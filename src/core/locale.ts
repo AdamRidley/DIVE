@@ -1,7 +1,51 @@
-import { LanguageOption, LocalizedString } from './types';
+import type { LanguageOption, LocalizedString, PlayerText } from './types';
 
 export const DEFAULT_LANGUAGE = 'en';
 const STORAGE_KEY = 'dive-video.lang';
+
+const PLAYER_COPY: Record<string, Record<PlayerTextKey, string>> = {
+  en: {
+    loadingStory: 'Loading Story...', loadingScene: 'Loading scene', end: 'End', replay: 'Replay',
+    sceneError: 'This scene could not be loaded.', retry: 'Retry',
+    chapters: 'Chapters', language: 'Language', settings: 'Settings', play: 'Play', pause: 'Pause',
+    mute: 'Mute', unmute: 'Unmute', hideCaptions: 'Hide captions', showCaptions: 'Show captions',
+    fullscreen: 'Toggle Fullscreen', captions: 'Captions', audioDescription: 'Audio description',
+    data: 'Data', dataView: 'Current data view for exploration', dataLoading: 'Data loading or external',
+  },
+  cy: {
+    loadingStory: 'Llwytho’r Stori...', loadingScene: 'Llwytho golygfa', end: 'Diwedd', replay: 'Chwarae eto',
+    sceneError: 'Nid oedd modd llwytho’r olygfa hon.', retry: 'Rhoi cynnig arall arni',
+    chapters: 'Penodau', language: 'Iaith', settings: 'Gosodiadau', play: 'Chwarae', pause: 'Oedi',
+    mute: 'Tewi', unmute: 'Dad-dewi', hideCaptions: 'Cuddio isdeitlau', showCaptions: 'Dangos isdeitlau',
+    fullscreen: 'Newid sgrin lawn', captions: 'Isdeitlau', audioDescription: 'Disgrifiad sain',
+    data: 'Data', dataView: 'Golwg data cyfredol i’w archwilio', dataLoading: 'Data yn llwytho neu’n allanol',
+  },
+};
+
+export type PlayerTextKey =
+  | 'loadingStory' | 'loadingScene' | 'end' | 'replay' | 'sceneError' | 'retry'
+  | 'chapters' | 'language' | 'settings' | 'play' | 'pause' | 'mute' | 'unmute'
+  | 'hideCaptions' | 'showCaptions' | 'fullscreen' | 'captions' | 'audioDescription'
+  | 'data' | 'dataView' | 'dataLoading';
+
+function textFor(source: PlayerText | undefined, lang: string): Record<string, string> {
+  if (!source) return {};
+  return source[lang] || source[lang.split('-')[0]] || {};
+}
+
+/**
+ * Player UI strings for `lang`: English, then built-in text for `lang`, then each override
+ * in order (e.g. configured defaults, then the story). Unknown keys are ignored.
+ */
+export function playerCopy(lang: string, ...overrides: (PlayerText | undefined)[]): Record<PlayerTextKey, string> {
+  const copy = { ...PLAYER_COPY.en, ...textFor(PLAYER_COPY, lang) };
+  for (const source of overrides) {
+    for (const [key, value] of Object.entries(textFor(source, lang))) {
+      if (key in copy && typeof value === 'string') copy[key as PlayerTextKey] = value;
+    }
+  }
+  return copy;
+}
 
 export function resolveLocalized(
   value: LocalizedString | undefined,

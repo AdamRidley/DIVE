@@ -19,11 +19,13 @@ Status: **proposed** unless marked done. Sign off a round by ID (e.g. “do F3, 
 | F7 | Prefetch next scene (Range for `.dive`, `<link rel=prefetch>` for folder tools) |
 | F8/F9 | **`.dive` ordered ZIP** + prefix play + Range-skip via `dive.json` |
 | F10 | JSON Schema + `npm run validate:story` |
-| F11 | Story `languages`, settings cog, one locale for UI/captions/VO, `DIVE_LANG` |
+| F11 | Story `languages`, settings cog or inline toggle (`languageToggle`), one locale for UI/captions/VO, `DIVE_LANG`, `playerText` for UI strings |
 | F13 | Audio description toggle (`role` / caption `kind: descriptions`) |
 | F16 | Fade on tool switch |
 | F18 | Poster until first play |
-| F19 | CSS parts: `canvas`, `poster`, `overlays`, `overlay`, `captions`, `controls`, `scrubber`, `buffer`, `chapters`, `settings`, `end-screen` |
+| F19 | CSS parts: `canvas`, `poster`, `overlays`, `overlay`, `captions`, `controls`, `scrubber`, `buffer`, `chapters`, `settings`, `lang-toggle`, `end-screen` |
+| F24 | `pauseOnInteract` at story, scene, and keyframe level |
+| F25 | Theme via `--dive-*` custom properties; `configure()` page-wide defaults |
 
 ## Proposed later
 

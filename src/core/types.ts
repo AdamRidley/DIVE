@@ -15,6 +15,18 @@ export interface Story {
    * A scene `uiMode` overrides this.
    */
   uiMode?: UiMode;
+  /**
+   * Where the language picker appears when `languages` has more than one entry.
+   * `auto` uses an inline toggle for exactly two languages and the settings menu otherwise.
+   */
+  languageToggle?: LanguageToggle;
+  /**
+   * Story-wide default for pausing when the viewer taps or interacts with a playing tool.
+   * Scene `pauseOnInteract` and keyframe `state.pauseOnInteract` override it.
+   */
+  pauseOnInteract?: boolean;
+  /** Player UI strings by language, e.g. `{ "fr": { "play": "Lire" } }`. Overrides built-in and configured text. */
+  playerText?: PlayerText;
   assets?: StoryAsset[];
   dependencies?: string[];
   scenes: Scene[];
@@ -23,7 +35,12 @@ export interface Story {
 
 export type UiMode = 'autohide' | 'inset';
 
+export type LanguageToggle = 'auto' | 'inline' | 'menu' | 'none';
+
 export type LocalizedString = string | Record<string, string>;
+
+/** Language code → player UI string key → text. Missing keys fall back to English. */
+export type PlayerText = Record<string, Record<string, string>>;
 
 export interface LanguageOption {
   code: string;
@@ -86,7 +103,7 @@ export interface Scene {
   endTime: number;
   data?: string | object; // optional URL or inline data to provide to the tool
   sendData?: boolean; // if false, DIVE mounts the tool without sending scene.data
-  pauseOnInteract?: boolean; // If true, tool interaction pauses playback for this scene
+  pauseOnInteract?: boolean; // Overrides the story default; keyframe state.pauseOnInteract overrides this
   uiMode?: UiMode;
   keyframes: Keyframe[];
   overlays: Overlay[];

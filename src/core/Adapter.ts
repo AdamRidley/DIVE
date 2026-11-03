@@ -32,8 +32,19 @@ export interface IAdapter {
   setLanguage?(lang: string): void;
   onLanguage?(callback: (lang: string) => void): void;
 
+  onNavigate?(callback: (sceneId: string, play: boolean) => void): void;
+
   /**
    * Optional: tool finished first paint / data load. Player buffers until this fires.
    */
   onReady?(callback: () => void): void;
+
+  /**
+   * Optional: whether the tool's page has loaded. If it has loaded but never signalled ready,
+   * the player shows it anyway after a timeout instead of reporting an error.
+   */
+  hasLoaded?(): boolean;
+
+  /** Keep initial animations paused while the next scene is prepared offscreen. */
+  setPreloading?(preloading: boolean): void;
 }

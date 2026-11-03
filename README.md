@@ -54,9 +54,48 @@ Classic (non-module) script tag:
 <dive-video src="./story.json"></dive-video>
 ```
 
-The IIFE build exposes `window.DIVE` (`DiveVideo`, `registerTool`, `Sequencer`).
+The IIFE build exposes `window.DIVE` (`DiveVideo`, `registerTool`, `configure`, `Sequencer`).
 
 Story JSON can include `aspectRatio` (default `9:16`), `audio` (URL or clip objects), and `captions` (WebVTT URL or `{ startTime, endTime, text }` cues). If you only set the element's width, it sizes its height from the aspect ratio and letterboxes when the box is forced (explicit height or fullscreen).
+
+Use `<dive-video src="./story.json" muted></dive-video>` to start with sound off; the speaker control enables it on demand. The reflected `isMuted` property also supports programmatic changes. Player controls have built-in English and Welsh text; other languages (or rewording) come from `playerText` (see below). `dive-language-change` emits `{ lang }` in its event detail when the active language changes.
+
+### Interaction, languages, and theming
+
+- `pauseOnInteract` (boolean) can be set on the story, a scene, or a keyframe `state`. The most specific value wins. When true, tapping a playing tool pauses it (autohide's first tap still just reveals the chrome) and so does an iframe `DIVE_INTERACT`. Interaction never resumes playback.
+- `languageToggle` on the story (or the `language-toggle` attribute) places the language picker: `menu` (settings cog, default), `inline` (EN/CY pill in the chrome), `auto` (inline for exactly two languages, menu otherwise), or `none`.
+- `playerText` sets player UI strings per language, e.g. `{ "fr": { "play": "Lire", "pause": "Pause" } }`. Keys: `loadingStory`, `loadingScene`, `end`, `replay`, `sceneError`, `retry`, `chapters`, `language`, `settings`, `play`, `pause`, `mute`, `unmute`, `hideCaptions`, `showCaptions`, `fullscreen`, `captions`, `audioDescription`, `data`, `dataView`, `dataLoading`. Missing keys fall back to English. Story `playerText` beats `configure({ playerText })`, which beats the built-in text.
+- Colours and font are CSS custom properties, so a page can rebrand the player without touching it:
+
+```css
+dive-video {
+  --dive-accent: #0a7c6b;           /* active language, progress bar */
+  --dive-accent-contrast: #fff;
+  --dive-font: "Segoe UI", sans-serif;
+  --dive-chrome-bg: #111214;        /* inset bars */
+  --dive-chrome-fg: #fff;           /* icons and chrome text */
+  --dive-stage-bg: #f4f4f4;
+  --dive-scrubber-bg: #3f3f3f;
+  --dive-progress: rgba(10, 124, 107, 0.55); /* defaults to the accent at 55% */
+  --dive-drawer-bg: rgba(10, 10, 12, 0.88);
+  --dive-button-bg: #444;
+  --dive-button-hover-bg: #666;
+}
+```
+
+A downstream build can set house defaults once with `configure()` (or `DiveVideo.configure()`). Story values and page CSS still win:
+
+```js
+import { configure } from 'dive-video';
+
+configure({
+  languages: [{ code: 'en', label: 'English', default: true }, { code: 'cy', label: 'Cymraeg' }],
+  languageToggle: 'auto',
+  pauseOnInteract: true,
+  uiMode: 'inset',
+  theme: { '--dive-accent': '#0a7c6b' },
+});
+```
 
 ## Local development
 

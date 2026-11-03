@@ -57,18 +57,21 @@ npm run build:wealth-health-data   # regenerate Gapminder JSON from raw CSVs
 - Built-in tools: register in `toolRegistry` (`map`, `scatterplot`). External tools:
   - `tool` ending `.js` → dynamic `import()` of an `IAdapter` class
   - `tool` ending `.html` or `http(s)://` → `IframeAdapter` + `postMessage`
-- Iframe protocol (child → parent: `DIVE_INTERACT`, `DIVE_READY`, `DIVE_LANG`; parent → child: `DIVE_INIT`, `DIVE_STATE`, `DIVE_PLAYBACK`, `DIVE_LANG`). Player buffers until `DIVE_READY`.
+- Iframe protocol (child → parent: `DIVE_INTERACT`, `DIVE_READY`, `DIVE_LANG`, `DIVE_NAVIGATE { sceneId, play? }`; parent → child: `DIVE_INIT`, `DIVE_STATE`, `DIVE_PLAYBACK`, `DIVE_LANG`). Player buffers until `DIVE_READY`; a loaded page with no `DIVE_READY` is shown after 8s with a warning, and a page that never loads gets an error with Retry.
 - Keyframe `time` is milliseconds from **scene start**, not story start.
 - `visualState.streamTime: true` makes the player call `setState` every tick.
-- `pauseOnInteract` may be set on the scene or on the current keyframe state.
+- `pauseOnInteract` resolves keyframe `state` > scene > story > `configure()` default > `false`. When true, a tap on the playing stage (after autohide's reveal tap) or `DIVE_INTERACT` pauses. Interaction never resumes.
 - Overlay placement is `placement: { anchor | mode: "absolute" }`. Legacy `position` is ignored. Audio overlays may omit `placement`.
 - `uiMode` is `autohide` (default: overlay chrome, first tap shows it) or `inset` (chrome outside the picture). Scene `uiMode` overrides the story. Attribute `ui-mode` on `<dive-video>` wins.
 - Default frame is **9:16**. Set `aspectRatio` on the story (`16:9`, `16/9`, `4:3`) to override. Host autosizes from width unless an explicit height or `:fullscreen` is set (then letterbox).
 - `audio` is a URL, clip object, or array. Overlay `{ "type": "audio", "content": "/vo.mp3" }` is also a clip. Synced on play/pause/seek.
 - `captions` is a VTT URL, cue array, or track object(s). CC button toggles; cues also go to `aria-live`.
-- `languages` lists codes shown in the settings cog. English is the fallback. One locale drives UI, captions, and VO. Tools get `DIVE_LANG`.
+- `languages` lists the locales. English is the fallback. One locale drives UI, captions, and VO. Tools get `DIVE_LANG`. `languageToggle` (`menu` default, `inline`, `auto`, `none`; attribute `language-toggle` wins) decides whether the picker is in the settings cog or an inline pill.
+- Theming is CSS custom properties (`--dive-accent`, `--dive-accent-contrast`, `--dive-font`, `--dive-chrome-bg`, `--dive-chrome-fg`, `--dive-stage-bg`, `--dive-scrubber-bg`, `--dive-progress`, `--dive-drawer-bg`, `--dive-button-bg`, `--dive-button-hover-bg`). Keep built-in values neutral; brands set them from page CSS or `configure({ theme })`.
+- `configure()` / `DiveVideo.configure()` sets page-wide defaults (`uiMode`, `languages`, `languageToggle`, `pauseOnInteract`, `theme`, `playerText`). Story values and page CSS always win.
+- Player UI strings: built-in `en` and `cy` in `src/core/locale.ts`; other languages via `playerText` (story > `configure()` > built-in > English). Don't hard-code new languages into the player.
 - Keyboard: Space/K play, J/L or arrows ±5s, F fullscreen, M mute, C captions, Home/End, Esc closes drawers.
-- CSS parts: `canvas`, `poster`, `overlays`, `overlay`, `captions`, `controls`, `scrubber`, `buffer`, `chapters`, `settings`, `end-screen`.
+- CSS parts: `canvas`, `poster`, `overlays`, `overlay`, `captions`, `controls`, `scrubber`, `buffer`, `chapters`, `settings`, `lang-toggle`, `end-screen`.
 - Feature backlog: `docs/features.md`.
 - Workshop-first for product behaviour. Packaging/CI changes that the user asked for are in-scope.
 
