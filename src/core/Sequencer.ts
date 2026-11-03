@@ -100,7 +100,9 @@ export class Sequencer {
   }
 
   private getCurrentScene(): Scene | undefined {
-    return this.story.scenes.find(s => this.currentTime >= s.startTime && this.currentTime <= s.endTime);
+    return this.story.scenes.find(scene => this.currentTime >= scene.startTime
+      && (this.currentTime < scene.endTime
+        || (this.currentTime === this.story.duration && scene.endTime === this.story.duration)));
   }
 
   private calculateSceneState(scene: Scene, sceneTime: number) {

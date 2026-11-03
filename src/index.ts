@@ -1,4 +1,6 @@
 export { DiveVideo, registerTool } from './components/dive-video';
+export { configurePlayer as configure } from './core/config';
+export type { PlayerDefaults } from './core/config';
 export { Sequencer } from './core/Sequencer';
 export type { IAdapter } from './core/Adapter';
 export type {
@@ -21,6 +23,7 @@ export type {
   LocalizedString,
   AudioRole,
   UiMode,
+  LanguageToggle,
 } from './core/types';
 export { parseAspectRatio, containSize, DEFAULT_ASPECT } from './core/aspect';
 export { parseVtt, cuesAtTime, captionTracksForLocale } from './core/captions';

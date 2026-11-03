@@ -73,6 +73,23 @@
       "type": "string",
       "enum": ["autohide", "inset"]
     },
+    "languageToggle": {
+      "description": "Language picker placement: auto (inline for exactly two languages, menu otherwise), inline, menu (settings cog), none",
+      "type": "string",
+      "enum": ["auto", "inline", "menu", "none"]
+    },
+    "pauseOnInteract": {
+      "description": "Story default: tapping or interacting with a playing tool pauses playback. Scene and keyframe state override it",
+      "type": "boolean"
+    },
+    "playerText": {
+      "description": "Player UI strings by language code, e.g. { \"fr\": { \"play\": \"Lire\" } }. English and Welsh are built in; missing keys fall back to English",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": { "type": "string" }
+      }
+    },
     "assets": {
       "description": "Asset definitions",
       "type": "array",
@@ -102,8 +119,8 @@
           "id": { "type": "string" },
           "startTime": { "type": "number", "minimum": 0 },
           "endTime": { "type": "number", "minimum": 0 },
-          "label": { "type": "string" },
-          "description": { "type": "string" },
+          "label": { "$ref": "#/$defs/localizedString" },
+          "description": { "$ref": "#/$defs/localizedString" },
           "color": { "type": "string" }
         },
         "required": ["startTime", "endTime", "label"],
@@ -118,6 +135,12 @@
   },
   "required": ["title", "duration", "scenes"],
   "$defs": {
+    "localizedString": {
+      "anyOf": [
+        { "type": "string" },
+        { "type": "object", "additionalProperties": { "type": "string" } }
+      ]
+    },
     "audioClip": {
       "type": "object",
       "properties": {
@@ -179,7 +202,7 @@
           ]
         },
         "sendData": { "type": "boolean" },
-        "pauseOnInteract": { "type": "boolean" },
+        "pauseOnInteract": { "type": "boolean", "description": "Overrides the story default for this scene" },
         "uiMode": { "type": "string", "enum": ["autohide", "inset"] },
         "dependencies": {
           "type": "array",
@@ -191,7 +214,12 @@
             "type": "object",
             "properties": {
               "time": { "type": "number", "minimum": 0 },
-              "state": { "type": "object" },
+              "state": {
+                "type": "object",
+                "properties": {
+                  "pauseOnInteract": { "type": "boolean", "description": "Overrides the scene and story default from this keyframe on" }
+                }
+              },
               "duration": { "type": "number", "minimum": 0 }
             },
             "required": ["time", "state"],

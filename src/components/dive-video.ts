@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, type PropertyValues } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { Sequencer } from '../core/Sequencer';
 import { Story, NarrativeState, TimelineSection, Overlay, OverlayAnchor, OverlayAnchorPlacement, OverlayCanonicalAnchor, OverlayPlacementUnit, CaptionCue, LanguageOption } from '../core/types';
@@ -12,9 +12,10 @@ import { stageSize } from '../core/stage';
 import { AudioEngine, collectStoryAudio, filterAudioClips } from '../core/audio';
 import { captionTracksForLocale, cuesAtTime, resolveCaptionTracks, ResolvedCaptionTrack } from '../core/captions';
 import { filesForScene, loadDivePack, looksLikeDiveUrl, openDivePack, shouldLoadAsDive, DivePackSession } from '../core/dive-pack';
-import { listedLanguages, resolveLocalized, resolvePlayerLanguage, storeLanguage } from '../core/locale';
+import { listedLanguages, playerCopy, resolveLocalized, resolvePlayerLanguage, storeLanguage } from '../core/locale';
 import { readDiveUrlState, writeDiveUrlState } from '../core/url-state';
 import { resolveUiMode } from '../core/ui-mode';
+import { configurePlayer, onThemeChange, playerDefaults, PlayerDefaults, resolveLanguageToggle, resolvePauseOnInteract, themeCss } from '../core/config';
 
 const toolRegistry: Record<string, new () => IAdapter> = {
   'map': D3MapAdapter,
@@ -34,10 +35,26 @@ const timelineSectionPalette = [
   'rgba(102, 214, 196, 0.35)',
 ];
 
+interface PreparedTool {
+  container: HTMLElement;
+  adapter: IAdapter | null;
+  loading: Promise<void>;
+  ready: boolean;
+  error: Error | null;
+  readyTimer: number;
+  disposed: boolean;
+}
+
 @customElement('dive-video')
 export class DiveVideo extends LitElement {
+  /** Set site-wide defaults (theme, languages, toggle, pause, uiMode). Stories still override them. */
+  static configure(defaults: PlayerDefaults) {
+    configurePlayer(defaults);
+  }
+
   @property({ type: String }) src = ''; // URL to the story JSON
   @property({ type: String, attribute: 'ui-mode' }) uiMode = '';
+  @property({ type: String, attribute: 'language-toggle' }) languageToggle = '';
 
   @state() private story: Story | null = null;
   @state() private isPlaying = false;
@@ -46,7 +63,7 @@ export class DiveVideo extends LitElement {
   @state() private activeToolId: string | null = null;
   @state() private isFullscreen = false;
   @state() private isUIHidden = false;
-  @state() private isMuted = false;
+  @property({ type: Boolean, attribute: 'muted', reflect: true }) isMuted = false;
   @state() private captionsEnabled = true;
   @state() private descriptionsEnabled = false;
   @state() private activeCues: CaptionCue[] = [];
@@ -56,9 +73,11 @@ export class DiveVideo extends LitElement {
   @state() private ended = false;
   @state() private hasStarted = false;
   @state() private sceneReady = true;
+  @state() private sceneError = false;
   @state() private toolFading = false;
   private playWhenReady = false;
-  private toolReadyTimer = 0;
+  private preparedTools = new Map<string, PreparedTool>();
+  private toolSwitchVersion = 0;
   private audioHardSeek = false;
 
   @query('#canvas-container') private canvasContainer!: HTMLElement;
@@ -68,7 +87,6 @@ export class DiveVideo extends LitElement {
   private sequencer: Sequencer | null = null;
   private activeAdapter: IAdapter | null = null;
   private lastVisualState: any = null;
-  private activeScenePauseOnInteract = false;
   private isScrubbing = false;
   private scrubberElement: HTMLElement | null = null;
   private hideUIHandle = 0;
@@ -79,6 +97,8 @@ export class DiveVideo extends LitElement {
   private urlSyncHandle = 0;
   private allAudioSpecs: ReturnType<typeof collectStoryAudio> = [];
   private stageObserver: ResizeObserver | null = null;
+  private themeSheet: CSSStyleSheet | null = null;
+  private stopThemeListener: (() => void) | null = null;
 
   static styles = css`
     :host {
@@ -90,7 +110,7 @@ export class DiveVideo extends LitElement {
       aspect-ratio: var(--aspect-ratio, 9 / 16);
       background: #000;
       overflow: hidden;
-      font-family: sans-serif;
+      font-family: var(--dive-font, sans-serif);
       outline: none;
     }
     :host(:fullscreen) {
@@ -98,12 +118,12 @@ export class DiveVideo extends LitElement {
       height: 100%;
       aspect-ratio: auto;
     }
-    :host([ui-mode="inset"]) {
+    :host([active-ui-mode="inset"]) {
       display: grid;
       grid-template-rows: 48px minmax(0, 1fr) 56px;
-      background: #111214;
+      background: var(--dive-chrome-bg, #111214);
     }
-    :host([ui-mode="inset"]:fullscreen) {
+    :host([active-ui-mode="inset"]:fullscreen) {
       grid-template-rows: 52px minmax(0, 1fr) 64px;
     }
     .video-section {
@@ -115,7 +135,8 @@ export class DiveVideo extends LitElement {
       container-type: size;
       container-name: stage;
     }
-    :host([ui-mode="inset"]) .video-section {
+    :host([active-ui-mode="inset"]) .video-section {
+      grid-row: 2;
       position: relative;
       inset: auto;
       min-width: 0;
@@ -135,13 +156,13 @@ export class DiveVideo extends LitElement {
     #canvas-container {
       width: var(--stage-w, 1920px);
       height: var(--stage-h, 1080px);
-      background: #f4f4f4;
+      background: var(--dive-stage-bg, #f4f4f4);
       position: absolute;
       top: 0;
       left: 0;
       transform-origin: 0 0;
       transform: scale(var(--stage-scale, 1));
-      transition: opacity 0.28s ease;
+      transition: opacity 0.34s ease, transform 0.34s ease;
     }
     .play-catcher {
       position: absolute;
@@ -151,6 +172,7 @@ export class DiveVideo extends LitElement {
     }
     #canvas-container.fading {
       opacity: 0;
+      transform: scale(calc(var(--stage-scale, 1) * 0.985));
     }
     .poster {
       position: absolute;
@@ -165,8 +187,8 @@ export class DiveVideo extends LitElement {
     .drawer {
       position: absolute;
       z-index: 12;
-      color: #fff;
-      background: rgba(10, 10, 12, 0.88);
+      color: var(--dive-chrome-fg, #fff);
+      background: var(--dive-drawer-bg, rgba(10, 10, 12, 0.88));
     }
     .end-screen {
       inset: 0;
@@ -213,7 +235,7 @@ export class DiveVideo extends LitElement {
       text-align: left;
       background: transparent;
       border: 0;
-      color: #fff;
+      color: var(--dive-chrome-fg, #fff);
       padding: 8px 12px;
       margin: 0;
       border-radius: 0;
@@ -284,6 +306,17 @@ export class DiveVideo extends LitElement {
       border-radius: 50%;
       animation: dive-spin 0.8s linear infinite;
     }
+    .scene-error {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-content: center;
+      gap: 12px;
+      text-align: center;
+      color: #fff;
+      background: rgba(0, 0, 0, 0.75);
+      z-index: 9;
+    }
     @keyframes dive-spin {
       to { transform: rotate(360deg); }
     }
@@ -297,7 +330,7 @@ export class DiveVideo extends LitElement {
       align-items: center;
       padding: 10px 10px 8px;
       box-sizing: border-box;
-      color: white;
+      color: var(--dive-chrome-fg, #fff);
       transition: opacity 0.25s ease, transform 0.25s ease;
       z-index: 10;
     }
@@ -312,38 +345,89 @@ export class DiveVideo extends LitElement {
     .chrome-top {
       display: contents;
     }
-    :host([ui-mode="inset"]) .chrome-top {
+    :host([active-ui-mode="inset"]) .chrome-top {
+      grid-row: 1;
       display: flex;
       align-items: center;
       justify-content: space-between;
       padding: 6px 8px;
-      background: #111214;
+      background: var(--dive-chrome-bg, #111214);
       z-index: 11;
     }
-    :host([ui-mode="inset"]) .controls {
+    .chrome-top-right {
+      display: contents;
+    }
+    :host([active-ui-mode="inset"]) .chrome-top-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .lang-toggle {
+      position: absolute;
+      top: 10px;
+      right: 54px;
+      z-index: 11;
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.55);
+      transition: opacity 0.25s ease;
+    }
+    .lang-toggle.solo {
+      right: 10px;
+    }
+    .lang-toggle.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    :host([active-ui-mode="inset"]) .lang-toggle {
+      position: relative;
+      top: auto;
+      right: auto;
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .lang-toggle button {
+      border: none;
+      cursor: pointer;
+      margin: 0;
+      padding: 8px 14px;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      border-radius: 999px;
+      background: transparent;
+      color: color-mix(in srgb, var(--dive-chrome-fg, #fff) 70%, transparent);
+    }
+    .lang-toggle button[aria-current="true"] {
+      background: var(--dive-accent, rgb(0, 123, 255));
+      color: var(--dive-accent-contrast, #fff);
+    }
+    :host([active-ui-mode="inset"]) .controls {
+      grid-row: 3;
       position: relative;
       bottom: auto;
       left: auto;
       right: auto;
       min-height: 56px;
-      background: #111214;
+      background: var(--dive-chrome-bg, #111214);
       transform: none;
       opacity: 1;
       pointer-events: auto;
     }
-    :host([ui-mode="inset"]) .corner-btn,
-    :host([ui-mode="inset"]) button.icon-btn.corner-btn {
+    :host([active-ui-mode="inset"]) .corner-btn,
+    :host([active-ui-mode="inset"]) button.icon-btn.corner-btn {
       position: relative;
       top: auto;
       left: auto;
       right: auto;
       background: rgba(255, 255, 255, 0.08);
     }
-    :host([ui-mode="inset"]) .drawer.chapters {
+    :host([active-ui-mode="inset"]) .drawer.chapters {
       left: 8px;
       top: 50px;
     }
-    :host([ui-mode="inset"]) .drawer.settings {
+    :host([active-ui-mode="inset"]) .drawer.settings {
       right: 8px;
       top: 50px;
     }
@@ -364,7 +448,7 @@ export class DiveVideo extends LitElement {
     .corner-btn.settings { right: 10px; }
     button.icon-btn {
       background: transparent;
-      color: #fff;
+      color: var(--dive-chrome-fg, #fff);
       padding: 0;
       margin: 0 0 0 6px;
       width: 40px;
@@ -381,10 +465,13 @@ export class DiveVideo extends LitElement {
     button.icon-btn:hover {
       background: rgba(255, 255, 255, 0.16);
     }
+    button.icon-btn svg,
+    button.icon-btn svg path {
+      fill: var(--dive-chrome-fg, #fff);
+    }
     button.icon-btn svg {
       width: 24px;
       height: 24px;
-      fill: #fff;
       display: block;
       flex: none;
     }
@@ -394,22 +481,22 @@ export class DiveVideo extends LitElement {
       background: rgba(0, 0, 0, 0.55);
     }
     button {
-      background: #444;
+      background: var(--dive-button-bg, #444);
       border: none;
-      color: white;
+      color: var(--dive-chrome-fg, #fff);
       padding: 8px 16px;
       cursor: pointer;
       border-radius: 4px;
       margin-right: 10px;
     }
     button:hover {
-      background: #666;
+      background: var(--dive-button-hover-bg, #666);
     }
     .scrubber {
       flex-grow: 1;
       position: relative;
       height: 20px;
-      background: #3f3f3f;
+      background: var(--dive-scrubber-bg, #3f3f3f);
       margin: 0 15px;
       cursor: pointer;
       border-radius: 10px;
@@ -443,7 +530,7 @@ export class DiveVideo extends LitElement {
       top: 0;
       left: 0;
       height: 100%;
-      background: rgba(0, 123, 255, 0.55);
+      background: var(--dive-progress, color-mix(in srgb, var(--dive-accent, rgb(0, 123, 255)) 55%, transparent));
       pointer-events: none;
       z-index: 1;
     }
@@ -464,6 +551,8 @@ export class DiveVideo extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    this.applyTheme();
+    this.stopThemeListener = onThemeChange(() => this.applyTheme());
     document.addEventListener('fullscreenchange', this.handleFullscreenChange);
     this.addEventListener('pointermove', this.resetUIHideTimer);
     this.addEventListener('pointerdown', this.resetUIHideTimer);
@@ -482,16 +571,28 @@ export class DiveVideo extends LitElement {
     this.observeStage();
   }
 
-  protected updated() {
+  protected updated(changedProperties: PropertyValues) {
+    if (changedProperties.has('isMuted')) {
+      this.audioEngine.setMuted(this.isMuted);
+    }
+    if (changedProperties.has('playerLang')) {
+      this.dispatchEvent(new CustomEvent('dive-language-change', {
+        detail: { lang: this.playerLang }, bubbles: true, composed: true,
+      }));
+    }
+    // Reflect the resolved mode for styling only. Writing it to ui-mode would turn it into a
+    // host override that pins every later scene to the first resolved mode.
     const mode = this.activeUiMode();
-    if (this.getAttribute('ui-mode') !== mode) {
-      this.setAttribute('ui-mode', mode);
+    if (this.getAttribute('active-ui-mode') !== mode) {
+      this.setAttribute('active-ui-mode', mode);
     }
     this.applyStageScale();
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
+    this.stopThemeListener?.();
+    this.stopThemeListener = null;
     this.stopScrubTracking();
     document.removeEventListener('fullscreenchange', this.handleFullscreenChange);
     this.removeEventListener('pointermove', this.resetUIHideTimer);
@@ -499,7 +600,11 @@ export class DiveVideo extends LitElement {
     this.removeEventListener('keydown', this.handleKeydown);
     if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
     if (this.urlSyncHandle) window.clearTimeout(this.urlSyncHandle);
-    if (this.toolReadyTimer) window.clearTimeout(this.toolReadyTimer);
+    this.toolSwitchVersion++;
+    this.sequencer?.pause();
+    for (const tool of this.preparedTools.values()) this.disposePreparedTool(tool);
+    this.preparedTools.clear();
+    this.activeAdapter = null;
     this.stageObserver?.disconnect();
     this.audioEngine.dispose();
   }
@@ -535,9 +640,26 @@ export class DiveVideo extends LitElement {
     }
   }
 
+  private applyTheme() {
+    const root = this.shadowRoot;
+    if (!root || typeof CSSStyleSheet === 'undefined' || !('adoptedStyleSheets' in root)) {
+      return;
+    }
+    if (!this.themeSheet) {
+      this.themeSheet = new CSSStyleSheet();
+      root.adoptedStyleSheets = [...root.adoptedStyleSheets, this.themeSheet];
+    }
+    this.themeSheet.replaceSync(themeCss());
+  }
+
   private activeUiMode() {
     const scene = this.story?.scenes.find((item) => item.id === this.activeToolId);
-    return resolveUiMode(this.story, scene, this.uiMode);
+    return resolveUiMode(this.story, scene, this.uiMode, playerDefaults().uiMode);
+  }
+
+  private pauseOnInteractActive() {
+    const scene = this.story?.scenes.find((item) => item.id === this.activeToolId);
+    return resolvePauseOnInteract(this.story, scene, this.activeNarrativeState?.visualState);
   }
 
   private resetUIHideTimer = () => {
@@ -556,8 +678,14 @@ export class DiveVideo extends LitElement {
   private handlePlayCatcher = (event: Event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (this.isUIHidden) {
+    if (this.activeUiMode() === 'autohide' && this.isUIHidden) {
+      // First tap while chrome is hidden just reveals it again.
       this.resetUIHideTimer();
+      return;
+    }
+    if (this.pauseOnInteractActive()) {
+      // Interaction only ever pauses; resuming is the Play button's job.
+      if (this.isPlaying) this.togglePlay();
       return;
     }
     this.isUIHidden = true;
@@ -623,7 +751,7 @@ export class DiveVideo extends LitElement {
 
       this.applyAspectRatio(this.story?.aspectRatio);
       this.observeStage();
-      this.playerLang = resolvePlayerLanguage(this.story?.languages, urlState.lang);
+      this.playerLang = resolvePlayerLanguage(this.storyLanguages(), urlState.lang);
       this.allAudioSpecs = this.story ? collectStoryAudio(this.story, this.storyBaseUrl) : [];
       this.applyLocaleMedia();
       this.captionTracks = this.story
@@ -648,10 +776,6 @@ export class DiveVideo extends LitElement {
         this.syncMedia(state.time);
         this.scheduleUrlSync();
 
-        if (state.scene) {
-          this.activeScenePauseOnInteract = this.resolvePauseOnInteract(state.scene, state.visualState);
-        }
-        
         // Handle Scene / Adapter Loading
         if (state.scene && state.scene.id !== this.activeToolId) {
           this.switchTool(state.scene);
@@ -692,21 +816,8 @@ export class DiveVideo extends LitElement {
     }
     const needed = filesForScene(this.packSession.manifest, scene.id);
     if (needed.length && !this.packSession.hasAll(needed)) {
-      const resume = this.isPlaying;
-      this.sceneReady = false;
-      if (resume) {
-        this.sequencer?.pause();
-        this.isPlaying = false;
-        this.playWhenReady = true;
-      }
-      try {
-        await this.packSession.prioritizeScene(scene.id);
-        await this.packSession.waitFor(needed);
-      } finally {
-        if (resume) {
-          this.playWhenReady = true;
-        }
-      }
+      await this.packSession.prioritizeScene(scene.id);
+      await this.packSession.waitFor(needed);
     }
     this.packSession.refreshStory();
     this.story = this.packSession.story;
@@ -726,69 +837,86 @@ export class DiveVideo extends LitElement {
   }
 
   private async switchTool(scene: Story['scenes'][0]) {
-    scene = await this.ensureScenePacked(scene);
-    // Unmount previous
-    if (this.activeAdapter) {
-      this.activeAdapter.unmount();
-      this.activeAdapter = null;
-    }
+    const version = ++this.toolSwitchVersion;
+    this.activeAdapter?.setPlaybackState?.(false, this.currentTime);
+    this.activeAdapter = null;
     this.activeToolId = scene.id;
-    this.activeScenePauseOnInteract = this.resolvePauseOnInteract(scene, null);
-    this.toolFading = true;
-
-    const tool = scene.tool;
-    const packedName = this.packedNameForUrl(tool);
-
-    // Load new adapter
-    if (toolRegistry[tool]) {
-      const AdapterClass = toolRegistry[tool];
-      this.activeAdapter = new AdapterClass();
-    } else if (tool.endsWith('.js') || packedName?.endsWith('.js')) {
-      try {
-        const moduleUrl = tool.startsWith('blob:') ? tool : new URL(tool, window.location.origin).href;
-        const module = await import(/* @vite-ignore */ moduleUrl);
-        // Look for the exported class, either default or first exported value
-        const AdapterClass = module.default || Object.values(module)[0];
-        if (typeof AdapterClass === 'function') {
-          this.activeAdapter = new (AdapterClass as new () => IAdapter)();
-        } else {
-          console.warn(`No valid adapter class found in module: ${tool}`);
-        }
-      } catch (err) {
-        console.error(`Failed to dynamically import tool: ${tool}`, err);
-      }
-    } else if (
-      tool.endsWith('.html')
-      || packedName?.endsWith('.html')
-      || packedName?.endsWith('.htm')
-      || tool.startsWith('http://')
-      || tool.startsWith('https://')
-      || tool.startsWith('blob:')
-    ) {
-      this.activeAdapter = new IframeAdapter(tool);
-    } else {
-      console.warn(`No adapter registered for tool: ${tool}`);
+    this.sceneError = false;
+    for (const prepared of this.preparedTools.values()) {
+      this.setToolVisible(prepared, false);
     }
 
-    if (this.activeAdapter) {
-      if (this.activeAdapter.onInteract) {
-        this.activeAdapter.onInteract(() => {
-          if (!this.activeScenePauseOnInteract || !this.isPlaying || !this.sequencer) {
-            return;
-          }
+    const prepared = this.prepareTool(scene);
+    this.sceneReady = prepared.ready;
+    this.toolFading = !prepared.ready;
+    this.syncMedia(this.currentTime);
+    this.resetUIHideTimer();
+    this.prefetchNextScene(scene);
 
-          this.sequencer.pause();
-          this.isPlaying = false;
-          this.notifyAdapterPlaybackState();
-        });
-      }
-
-      this.fetchDataAndMount(scene);
+    await prepared.loading;
+    if (version !== this.toolSwitchVersion || prepared.disposed) return;
+    if (prepared.error) {
+      this.failTool(prepared.error);
+      return;
     }
+    this.activeAdapter = prepared.adapter;
+    this.setToolVisible(prepared, true);
+    this.activeAdapter?.setLanguage?.(this.playerLang);
+    const state = this.activeNarrativeState?.visualState;
+    if (state) this.activeAdapter?.setState(state, this.currentTime);
+    this.lastVisualState = state;
+    this.notifyAdapterPlaybackState();
+    if (prepared.ready) this.markToolReady();
+    requestAnimationFrame(() => {
+      if (version === this.toolSwitchVersion) this.toolFading = false;
+    });
   }
 
-  private async fetchDataAndMount(scene: Story['scenes'][0]) {
+  private prepareTool(scene: Story['scenes'][0]): PreparedTool {
+    const existing = this.preparedTools.get(scene.id);
+    if (existing) return existing;
+    const container = document.createElement('div');
+    container.style.cssText = 'position:absolute;inset:0;visibility:hidden;pointer-events:none';
+    container.inert = true;
+    container.setAttribute('aria-hidden', 'true');
+    this.canvasContainer.appendChild(container);
+    const prepared: PreparedTool = {
+      container, adapter: null, loading: Promise.resolve(), ready: false,
+      error: null, readyTimer: 0, disposed: false,
+    };
+    this.preparedTools.set(scene.id, prepared);
+    prepared.loading = this.loadPreparedTool(scene, prepared);
+    return prepared;
+  }
+
+  private async loadPreparedTool(scene: Story['scenes'][0], prepared: PreparedTool): Promise<void> {
     try {
+      scene = await this.ensureScenePacked(scene);
+      if (prepared.disposed) return;
+      const tool = scene.tool;
+      const packedName = this.packedNameForUrl(tool);
+      let adapter: IAdapter;
+      if (toolRegistry[tool]) {
+        adapter = new toolRegistry[tool]();
+      } else if (tool.endsWith('.js') || packedName?.endsWith('.js')) {
+        const moduleUrl = tool.startsWith('blob:') ? tool : new URL(tool, window.location.origin).href;
+        const module = await import(/* @vite-ignore */ moduleUrl);
+        const AdapterClass = module.default || Object.values(module)[0];
+        if (typeof AdapterClass !== 'function') {
+          throw new Error(`No valid adapter class found in module: ${tool}`);
+        }
+        adapter = new (AdapterClass as new () => IAdapter)();
+      } else if (
+        /\.html?$/.test(tool) || /\.html?$/.test(packedName || '')
+        || /^(https?:|blob:)/.test(tool)
+      ) {
+        adapter = new IframeAdapter(/^(https?:|blob:)/.test(tool)
+          ? tool : new URL(tool, this.storyBaseUrl || window.location.href).href);
+      } else {
+        throw new Error(`No adapter registered for tool: ${tool}`);
+      }
+      if (prepared.disposed) return;
+      prepared.adapter = adapter;
       let data: unknown = undefined;
       const dataRef = scene.data;
       const shouldSendData = scene.sendData !== false && typeof dataRef !== 'undefined';
@@ -798,50 +926,99 @@ export class DiveVideo extends LitElement {
           ? dataRef
           : new URL(dataRef, this.storyBaseUrl || window.location.href).href;
         const res = await fetch(dataUrl);
+        if (!res.ok) throw new Error(`Failed to load scene data: ${dataUrl} (${res.status})`);
         data = await res.json();
       } else if (shouldSendData) {
         data = dataRef;
       }
 
-      this.armToolReady(scene);
-      this.activeAdapter?.mount(this.canvasContainer, data);
-      this.activeAdapter?.setLanguage?.(this.playerLang);
-      this.activeAdapter?.onLanguage?.((code) => this.setLanguage(code));
-      this.activeAdapter?.onReady?.(() => this.markToolReady());
-      this.notifyAdapterPlaybackState();
-      requestAnimationFrame(() => { this.toolFading = false; });
-      this.prefetchNextScene(scene);
-    } catch (e) {
-      console.error("Failed to load data for tool:", e);
-      this.markToolReady();
+      if (prepared.disposed) return;
+      const isActive = () => !prepared.disposed && this.activeToolId === scene.id;
+      adapter.onInteract?.(() => {
+        if (isActive() && this.isPlaying && this.pauseOnInteractActive()) this.togglePlay();
+      });
+      adapter.onLanguage?.((code) => {
+        if (isActive()) this.setLanguage(code);
+      });
+      adapter.onNavigate?.((sceneId, play) => {
+        if (isActive()) this.navigateToScene(sceneId, play);
+      });
+      const markReady = () => {
+        if (prepared.disposed) return;
+        prepared.ready = true;
+        prepared.error = null;
+        window.clearTimeout(prepared.readyTimer);
+        if (isActive() && this.activeAdapter === adapter) this.markToolReady();
+      };
+      adapter.onReady?.(markReady);
+      adapter.setLanguage?.(this.playerLang);
+      adapter.setPlaybackState?.(false, scene.startTime);
+      adapter.setPreloading?.(true);
+      adapter.mount(prepared.container, data);
+      adapter.setState(scene.keyframes[0]?.state || {}, scene.startTime);
+      if (!adapter.onReady) prepared.ready = true;
+      if (!prepared.ready) {
+        prepared.readyTimer = window.setTimeout(() => {
+          if (adapter.hasLoaded?.()) {
+            console.warn(`Scene ${scene.id} loaded but did not signal DIVE_READY within 8 seconds; showing it anyway`);
+            markReady();
+            return;
+          }
+          prepared.error = new Error(`Scene ${scene.id} did not signal DIVE_READY within 8 seconds`);
+          console.error('Failed to prepare DIVE scene:', prepared.error);
+          if (isActive()) this.failTool(prepared.error);
+        }, 8000);
+      }
+    } catch (error) {
+      if (prepared.disposed) return;
+      prepared.error = error instanceof Error ? error : new Error(String(error));
+      console.error(`Failed to prepare DIVE scene ${scene.id}:`, error);
+      if (this.activeToolId === scene.id) this.failTool(error);
     }
   }
 
-  private armToolReady(scene: Story['scenes'][0]) {
-    if (this.toolReadyTimer) window.clearTimeout(this.toolReadyTimer);
+  private setToolVisible(tool: PreparedTool, visible: boolean) {
+    tool.adapter?.setPreloading?.(!visible);
+    tool.container.style.visibility = visible ? 'visible' : 'hidden';
+    tool.container.style.pointerEvents = visible ? 'auto' : 'none';
+    tool.container.inert = !visible;
+    tool.container.setAttribute('aria-hidden', String(!visible));
+  }
+
+  private disposePreparedTool(tool: PreparedTool) {
+    tool.disposed = true;
+    window.clearTimeout(tool.readyTimer);
+    tool.adapter?.unmount();
+    tool.container.remove();
+  }
+
+  private failTool(error: unknown) {
+    console.error('DIVE scene is unavailable:', error);
+    this.sceneError = true;
     this.sceneReady = false;
+    this.toolFading = false;
+    this.syncMedia(this.currentTime);
     this.resetUIHideTimer();
-    const needsReady = Boolean(this.activeAdapter?.onReady) || scene.tool.endsWith('.html') || scene.tool.startsWith('blob:');
-    if (!needsReady) {
-      this.markToolReady();
-      return;
-    }
-    this.toolReadyTimer = window.setTimeout(() => this.markToolReady(), 8000);
+  }
+
+  private retryTool = () => {
+    const scene = this.story?.scenes.find((item) => item.id === this.activeToolId);
+    if (!scene) return;
+    const prepared = this.preparedTools.get(scene.id);
+    if (prepared) this.disposePreparedTool(prepared);
+    this.preparedTools.delete(scene.id);
+    void this.switchTool(scene);
   }
 
   private markToolReady() {
-    if (this.toolReadyTimer) {
-      window.clearTimeout(this.toolReadyTimer);
-      this.toolReadyTimer = 0;
-    }
-    if (this.sceneReady) {
-      return;
-    }
+    this.sceneError = false;
     this.sceneReady = true;
     this.resetUIHideTimer();
     if (this.playWhenReady) {
       this.playWhenReady = false;
       this.beginPlayback();
+    } else {
+      this.notifyAdapterPlaybackState();
     }
   }
 
@@ -871,7 +1048,7 @@ export class DiveVideo extends LitElement {
 
   private notifyAdapterPlaybackState() {
     if (this.activeAdapter?.setPlaybackState) {
-      this.activeAdapter.setPlaybackState(this.isPlaying, this.currentTime);
+      this.activeAdapter.setPlaybackState(this.isPlaying && this.sceneReady, this.currentTime);
     }
     this.syncMedia(this.currentTime);
   }
@@ -886,8 +1063,8 @@ export class DiveVideo extends LitElement {
   private syncMedia(timeMs: number) {
     const hard = this.audioHardSeek;
     this.audioHardSeek = false;
-    this.audioEngine.sync(timeMs, this.isPlaying, { hard });
-    this.sequencer?.hold(this.isPlaying && this.audioEngine.isHoldingStory);
+    this.audioEngine.sync(timeMs, this.isPlaying && this.sceneReady, { hard });
+    this.sequencer?.hold(this.isPlaying && (!this.sceneReady || this.audioEngine.isHoldingStory));
     const tracks = captionTracksForLocale(this.captionTracks, this.playerLang, {
       captions: this.captionsEnabled,
       descriptions: this.descriptionsEnabled,
@@ -972,14 +1149,6 @@ export class DiveVideo extends LitElement {
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
 
-  private resolvePauseOnInteract(scene: Story['scenes'][0], visualState: any) {
-    if (visualState && typeof visualState.pauseOnInteract === 'boolean') {
-      return visualState.pauseOnInteract;
-    }
-
-    return Boolean(scene.pauseOnInteract);
-  }
-
   private getTimelineSections(): TimelineSection[] {
     if (!this.story) {
       return [];
@@ -1000,12 +1169,16 @@ export class DiveVideo extends LitElement {
     }));
   }
 
-  private languageOptions(): LanguageOption[] {
-    return listedLanguages(this.story?.languages);
+  private storyLanguages(): LanguageOption[] | undefined {
+    return this.story?.languages?.length ? this.story.languages : playerDefaults().languages;
   }
 
-  private showLanguagePicker(): boolean {
-    return (this.story?.languages?.length || 0) > 1;
+  private languageOptions(): LanguageOption[] {
+    return listedLanguages(this.storyLanguages());
+  }
+
+  private languagePlacement() {
+    return resolveLanguageToggle(this.storyLanguages()?.length || 0, this.story, this.languageToggle);
   }
 
   private applyLocaleMedia() {
@@ -1029,6 +1202,9 @@ export class DiveVideo extends LitElement {
     storeLanguage(code);
     this.applyLocaleMedia();
     this.activeAdapter?.setLanguage?.(code);
+    for (const tool of this.preparedTools.values()) {
+      if (tool.adapter !== this.activeAdapter) tool.adapter?.setLanguage?.(code);
+    }
     this.scheduleUrlSync();
   }
 
@@ -1045,6 +1221,14 @@ export class DiveVideo extends LitElement {
       this.settingsOpen = false;
     }
   };
+
+  private navigateToScene(sceneId: string, play: boolean) {
+    if (!this.story?.scenes.some((scene) => scene.id === sceneId) || !this.sequencer) return;
+    if (this.isPlaying || this.playWhenReady) this.togglePlay();
+    if (sceneId !== this.activeToolId) this.sceneReady = false;
+    this.jumpToScene(sceneId);
+    if (play) this.beginPlayback();
+  }
 
   private jumpToScene(sceneId: string) {
     const scene = this.story?.scenes.find((item) => item.id === sceneId);
@@ -1089,21 +1273,13 @@ export class DiveVideo extends LitElement {
   private prefetchNextScene(scene: Story['scenes'][0]) {
     const index = this.story?.scenes.findIndex((item) => item.id === scene.id) ?? -1;
     const next = index >= 0 ? this.story?.scenes[index + 1] : undefined;
-    if (!next) {
-      return;
+    for (const [id, tool] of this.preparedTools) {
+      if (id !== scene.id && id !== next?.id) {
+        this.disposePreparedTool(tool);
+        this.preparedTools.delete(id);
+      }
     }
-    if (this.packSession) {
-      void this.packSession.prioritizeScene(next.id);
-      return;
-    }
-    const tool = next.tool;
-    if (tool.endsWith('.html') || tool.endsWith('.js') || tool.startsWith('http')) {
-      const href = new URL(tool, this.storyBaseUrl || window.location.href).href;
-      const link = document.createElement('link');
-      link.rel = 'prefetch';
-      link.href = href;
-      document.head.appendChild(link);
-    }
+    if (next) this.prepareTool(next);
   }
 
   private handleKeydown = (event: KeyboardEvent) => {
@@ -1306,14 +1482,16 @@ export class DiveVideo extends LitElement {
   }
 
   render() {
+    const ui = playerCopy(this.playerLang, playerDefaults().playerText, this.story?.playerText);
     if (!this.story) {
-      return html`<div>Loading Story...</div>`;
+      return html`<div>${ui.loadingStory}</div>`;
     }
 
     const duration = this.story.duration;
     const percent = (this.currentTime / duration) * 100;
     const timelineSections = this.getTimelineSections();
-    const activeSceneData = this.story.scenes.find((scene) => scene.id === this.activeToolId)?.data;
+    const activeScene = this.story.scenes.find((scene) => scene.id === this.activeToolId);
+    const activeSceneData = activeScene?.data;
     const visibleOverlays = (this.activeNarrativeState?.activeOverlays || []).filter((overlay) => {
       if (overlay.type === 'audio') {
         return false;
@@ -1330,12 +1508,14 @@ export class DiveVideo extends LitElement {
       || this.captionTracks.some((track) => track.kind === 'descriptions');
     const hasAudio = this.audioEngine.hasAudio || this.allAudioSpecs.length > 0;
     const languages = this.languageOptions();
-    const showLang = this.showLanguagePicker();
+    const langPlacement = this.languagePlacement();
+    const showLangMenu = langPlacement === 'menu';
     const poster = this.story.poster && !this.hasStarted ? this.story.poster : null;
     const title = resolveLocalized(this.story.title, this.playerLang);
-    const hasSettings = showLang || hasCaptions || hasDescriptions;
+    const hasSettings = showLangMenu || hasCaptions || hasDescriptions;
     const chromeMode = this.activeUiMode();
     const chromeHidden = chromeMode === 'autohide' && this.isUIHidden;
+    const showCatcher = this.isPlaying && (chromeMode === 'autohide' || this.pauseOnInteractActive());
 
     return html`
       <div class="video-section">
@@ -1344,9 +1524,11 @@ export class DiveVideo extends LitElement {
           style="--aspect-ratio: ${aspectCss(aspect)}; --ar-w: ${aspect.width}; --ar-h: ${aspect.height};"
         >
           <div id="canvas-container" class="${this.toolFading ? 'fading' : ''}" part="canvas"></div>
-          ${chromeMode === 'autohide' && this.isPlaying ? html`<div class="play-catcher" @pointerdown=${this.handlePlayCatcher}></div>` : ''}
+          ${showCatcher ? html`<div class="play-catcher" @pointerdown=${this.handlePlayCatcher}></div>` : ''}
           ${poster ? html`<img class="poster" part="poster" src="${poster}" alt="" />` : ''}
-          ${this.sceneReady ? '' : html`<div class="buffer-spinner" part="buffer" aria-label="Loading scene"></div>`}
+          ${this.sceneError
+            ? html`<div class="scene-error" role="alert">${ui.sceneError}<button @click=${this.retryTool}>${ui.retry}</button></div>`
+            : this.sceneReady ? '' : html`<div class="buffer-spinner" part="buffer" aria-label=${ui.loadingScene}></div>`}
           
           <!-- Overlay Layer -->
           <div class="overlays" part="overlays">
@@ -1367,8 +1549,8 @@ export class DiveVideo extends LitElement {
 
           ${this.ended ? html`
             <div class="end-screen" part="end-screen">
-              <h2>${title || 'End'}</h2>
-              <button @click=${this.replay}>Replay</button>
+              <h2>${title || ui.end}</h2>
+              <button @click=${this.replay}>${ui.replay}</button>
             </div>
           ` : ''}
         </div>
@@ -1379,32 +1561,49 @@ export class DiveVideo extends LitElement {
       <button
         class="icon-btn corner-btn chapters ${chromeHidden ? 'hidden' : ''}"
         @click=${this.toggleChapters}
-        title="Chapters"
-        aria-label="Chapters"
+        title=${ui.chapters}
+        aria-label=${ui.chapters}
         aria-pressed=${this.chaptersOpen}
       >
         <svg viewBox="0 0 24 24"><path d="M3 5h18v2H3V5zm0 6h18v2H3v-2zm0 6h18v2H3v-2z"/></svg>
       </button>
 
-      ${hasSettings ? html`
-        <button
-          class="icon-btn corner-btn settings ${chromeHidden ? 'hidden' : ''}"
-          @click=${this.toggleSettings}
-          title="Settings"
-          aria-label="Settings"
-          aria-pressed=${this.settingsOpen}
-        >
-          <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.2 7.2 0 0 0-1.63-.94l-.36-2.54A.49.49 0 0 0 13.9 2h-3.8a.49.49 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.55-1.63.94l-2.39-.96a.49.49 0 0 0-.59.22L2.73 8.47a.49.49 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.13.23.4.32.64.22l2.39-.96c.5.39 1.04.7 1.63.94l.36 2.54c.05.24.25.41.48.41h3.8c.23 0 .43-.17.48-.41l.36-2.54c.59-.24 1.13-.55 1.63-.94l2.39.96c.23.09.51 0 .64-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
-        </button>
-      ` : ''}
+      <div class="chrome-top-right">
+        ${langPlacement === 'inline' ? html`
+          <div class="lang-toggle ${chromeHidden ? 'hidden' : ''} ${hasSettings ? '' : 'solo'}" part="lang-toggle" role="group" aria-label=${ui.language}>
+            ${languages.map((item) => html`
+              <button
+                type="button"
+                lang=${item.code}
+                title=${item.label}
+                aria-label="${item.label} (${item.code.toUpperCase()})"
+                aria-current=${item.code === this.playerLang}
+                @click=${() => this.setLanguage(item.code)}
+              >${item.code.toUpperCase()}</button>
+            `)}
+          </div>
+        ` : ''}
+
+        ${hasSettings ? html`
+          <button
+            class="icon-btn corner-btn settings ${chromeHidden ? 'hidden' : ''}"
+            @click=${this.toggleSettings}
+            title=${ui.settings}
+            aria-label=${ui.settings}
+            aria-pressed=${this.settingsOpen}
+          >
+            <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.2 7.2 0 0 0-1.63-.94l-.36-2.54A.49.49 0 0 0 13.9 2h-3.8a.49.49 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.55-1.63.94l-2.39-.96a.49.49 0 0 0-.59.22L2.73 8.47a.49.49 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.13.23.4.32.64.22l2.39-.96c.5.39 1.04.7 1.63.94l.36 2.54c.05.24.25.41.48.41h3.8c.23 0 .43-.17.48-.41l.36-2.54c.59-.24 1.13-.55 1.63-.94l2.39.96c.23.09.51 0 .64-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
+          </button>
+        ` : ''}
+      </div>
       </div>
 
       <div class="controls ${chromeHidden ? 'hidden' : ''}" part="controls">
         <button
           class="icon-btn"
           @click=${this.togglePlay}
-          title="${this.isPlaying ? 'Pause' : 'Play'}"
-          aria-label="${this.isPlaying ? 'Pause' : 'Play'}"
+          title="${this.isPlaying ? ui.pause : ui.play}"
+          aria-label="${this.isPlaying ? ui.pause : ui.play}"
         >
           ${this.isPlaying
             ? html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>`
@@ -1437,7 +1636,8 @@ export class DiveVideo extends LitElement {
           <!-- Scene Markers -->
           ${this.story.scenes.map(s => {
             const pos = (s.startTime / duration) * 100;
-            return html`<div class="scene-marker" style="left: ${pos}%" title="${s.id}"></div>`;
+            const label = timelineSections.find((section) => section.startTime === s.startTime)?.label || s.id;
+            return html`<div class="scene-marker" style="left: ${pos}%" title="${resolveLocalized(label, this.playerLang)}"></div>`;
           })}
         </div>
 
@@ -1449,8 +1649,8 @@ export class DiveVideo extends LitElement {
           <button
             class="icon-btn"
             @click=${this.toggleMute}
-            title="${this.isMuted ? 'Unmute' : 'Mute'}"
-            aria-label="${this.isMuted ? 'Unmute' : 'Mute'}"
+            title="${this.isMuted ? ui.unmute : ui.mute}"
+            aria-label="${this.isMuted ? ui.unmute : ui.mute}"
             aria-pressed=${this.isMuted}
           >
             ${this.isMuted
@@ -1463,15 +1663,15 @@ export class DiveVideo extends LitElement {
           <button
             class="icon-btn"
             @click=${this.toggleCaptions}
-            title="${this.captionsEnabled ? 'Hide captions' : 'Show captions'}"
-            aria-label="${this.captionsEnabled ? 'Hide captions' : 'Show captions'}"
+            title="${this.captionsEnabled ? ui.hideCaptions : ui.showCaptions}"
+            aria-label="${this.captionsEnabled ? ui.hideCaptions : ui.showCaptions}"
             aria-pressed=${this.captionsEnabled}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z"/></svg>
           </button>
         ` : ''}
 
-        <button class="icon-btn" @click=${this.toggleFullscreen} title="Toggle Fullscreen" aria-label="Toggle Fullscreen">
+        <button class="icon-btn" @click=${this.toggleFullscreen} title=${ui.fullscreen} aria-label=${ui.fullscreen}>
           ${this.isFullscreen
             ? html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>`
             : html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`}
@@ -1480,21 +1680,21 @@ export class DiveVideo extends LitElement {
 
       ${this.chaptersOpen ? html`
         <div class="drawer chapters" part="chapters">
-          <h3>Chapters</h3>
+          <h3>${ui.chapters}</h3>
           ${this.story.scenes.map((scene) => html`
             <button
               aria-current=${scene.id === this.activeToolId}
               @click=${() => this.jumpToScene(scene.id)}
-            >${scene.id}</button>
+            >${resolveLocalized(timelineSections.find((section) => section.startTime === scene.startTime)?.label || scene.id, this.playerLang)}</button>
           `)}
         </div>
       ` : ''}
 
       ${this.settingsOpen ? html`
         <div class="drawer settings" part="settings">
-          <h3>Settings</h3>
-          ${showLang ? html`
-            <h3>Language</h3>
+          <h3>${ui.settings}</h3>
+          ${showLangMenu ? html`
+            <h3>${ui.language}</h3>
             ${languages.map((item) => html`
               <button
                 aria-current=${item.code === this.playerLang}
@@ -1505,7 +1705,7 @@ export class DiveVideo extends LitElement {
           ${hasCaptions ? html`
             <label>
               <input type="checkbox" .checked=${this.captionsEnabled} @change=${this.toggleCaptions} />
-              Captions
+              ${ui.captions}
             </label>
           ` : ''}
           ${hasDescriptions ? html`
@@ -1515,7 +1715,7 @@ export class DiveVideo extends LitElement {
                 .checked=${this.descriptionsEnabled}
                 @change=${() => { this.descriptionsEnabled = !this.descriptionsEnabled; this.applyLocaleMedia(); }}
               />
-              Audio description
+              ${ui.audioDescription}
             </label>
           ` : ''}
         </div>
@@ -1531,15 +1731,15 @@ export class DiveVideo extends LitElement {
       
       <!-- Screen Reader Data Context -->
       <div class="sr-only" style="position: absolute; width: 1px; height: 1px; overflow: hidden;">
-        <h3>${this.activeToolId} Data</h3>
+        <h3>${ui.data}</h3>
         ${!this.isPlaying ? html`
           <table>
-            <caption>Current data view for exploration</caption>
+            <caption>${ui.dataView}</caption>
             <tbody>
               ${Array.isArray(activeSceneData) 
                 ? (activeSceneData as unknown as any[]).map((d: any) => html`
                 <tr>${Object.entries(d).map(([k, v]) => html`<td>${k}: ${v}</td>`)}</tr>
-              `) : html`<tr><td>Data loading or external</td></tr>`}
+              `) : html`<tr><td>${ui.dataLoading}</td></tr>`}
             </tbody>
           </table>
         ` : ''}

@@ -142,7 +142,7 @@ function collectStringRefs(story) {
   return { shared, perScene };
 }
 
-const TOOL_ASSET_RE = /['"]((?:\.\.\/|\.\/)[^'"]+\.(?:json|csv|tsv|geojson|svg|png|jpe?g|webp|gif|vtt|mp3|wav|ogg|js|css|html?))['"]/gi;
+const TOOL_ASSET_RE = /['"]([^'"\s<>?#]+\.(?:json|csv|tsv|geojson|svg|png|jpe?g|webp|gif|vtt|mp3|wav|ogg|js|css|html?))(?:[?#][^'"]*)?['"]/gi;
 
 async function discoverToolRefs(storyDir, toolRef) {
   const disk = await resolveOnDisk(storyDir, toolRef);
@@ -152,6 +152,7 @@ async function discoverToolRefs(storyDir, toolRef) {
   const text = await readFile(disk, 'utf8');
   const found = [];
   for (const match of text.matchAll(TOOL_ASSET_RE)) {
+    if (!isPackableRef(match[1])) continue;
     const abs = resolve(dirname(disk), match[1]);
     uniquePush(found, asPosix(relative(storyDir, abs)));
   }
@@ -262,11 +263,20 @@ async function main() {
   const storyDir = dirname(absStory);
   const story = JSON.parse(await readFile(absStory, 'utf8'));
   const { shared, perScene } = collectStringRefs(story);
+  const sceneTools = new Set((story.scenes || []).map((scene) => posix.normalize(scene.tool)));
+  const discovered = new Set();
+  const discover = async (ref) => {
+    if (discovered.has(ref)) return;
+    discovered.add(ref);
+    for (const extra of await discoverToolRefs(storyDir, ref)) {
+      if (sceneTools.has(posix.normalize(extra))) continue;
+      uniquePush(shared, extra);
+      await discover(extra);
+    }
+  };
   for (const scene of story.scenes || []) {
     if (isPackableRef(scene.tool)) {
-      for (const extra of await discoverToolRefs(storyDir, scene.tool)) {
-        uniquePush(shared, extra);
-      }
+      await discover(scene.tool);
     }
   }
   const used = new Set();
