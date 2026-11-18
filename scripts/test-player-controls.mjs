@@ -222,6 +222,24 @@ try {
     rule.style.removeProperty('height');
   });
   const player = page.locator('dive-video');
+  await player.evaluate(element => {
+    element.style.width = '720px';
+    element.setAttribute('ui-mode', 'inset');
+    element.captionsBelow = true;
+    element.captionsEnabled = false;
+  });
+  for (const enabled of [true, false, true]) {
+    await page.locator('dive-video .captions-btn').click();
+    assert.equal(await page.locator('dive-video .captions-btn').getAttribute('aria-pressed'), String(enabled));
+    await page.waitForFunction(() => {
+      const root = document.querySelector('dive-video').shadowRoot;
+      const area = root.querySelector('.picture-area').getBoundingClientRect();
+      const wrap = root.querySelector('.video-ratio-wrapper').getBoundingClientRect();
+      const canvas = root.querySelector('#canvas-container').getBoundingClientRect();
+      return Math.abs(area.width - wrap.width) < 1 && Math.abs(area.height - wrap.height) < 1
+        && Math.abs(canvas.width - wrap.width) < 1 && Math.abs(canvas.height - wrap.height) < 1;
+    }, null, { timeout: 5000 });
+  }
   for (const mode of ['autohide', 'inset']) {
     for (const below of [false, true]) {
       for (const [width, aspectRatio] of [[320, '16:9'], [720, '4:3'], [320, '9:16']]) {

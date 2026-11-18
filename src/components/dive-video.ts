@@ -101,6 +101,7 @@ export class DiveVideo extends LitElement {
   private urlSyncHandle = 0;
   private allAudioSpecs: ReturnType<typeof collectStoryAudio> = [];
   private stageObserver: ResizeObserver | null = null;
+  private observedStage: Element | null = null;
   private sizeObserver: ResizeObserver | null = null;
   private sizeTargets = new Set<Element>();
   private autoHeightFrame = 0;
@@ -737,7 +738,7 @@ export class DiveVideo extends LitElement {
     if (this.getAttribute('active-ui-mode') !== mode) {
       this.setAttribute('active-ui-mode', mode);
     }
-    this.applyStageScale();
+    this.observeStage();
     this.observeSize();
     if (changedProperties.has('playerLang')) this.updateFrameTitles();
   }
@@ -772,6 +773,7 @@ export class DiveVideo extends LitElement {
     this.preparedTools.clear();
     this.activeAdapter = null;
     this.stageObserver?.disconnect();
+    this.observedStage = null;
     this.sizeObserver?.disconnect();
     this.sizeTargets.clear();
     cancelAnimationFrame(this.autoHeightFrame);
@@ -879,10 +881,13 @@ export class DiveVideo extends LitElement {
     if (!this.stageObserver) {
       return;
     }
-    this.stageObserver.disconnect();
     const cell = this.pictureArea || this.videoSection || this.ratioWrapper;
+    if (cell !== this.observedStage) {
+      this.stageObserver.disconnect();
+      this.observedStage = cell ?? null;
+      if (cell) this.stageObserver.observe(cell);
+    }
     if (cell) {
-      this.stageObserver.observe(cell);
       this.applyStageScale();
     }
   }
@@ -924,6 +929,7 @@ export class DiveVideo extends LitElement {
     if (this.style.getPropertyValue('--dive-auto-height') !== value) {
       this.style.setProperty('--dive-auto-height', value);
     }
+    this.applyStageScale();
   }
 
   private applyStageScale() {
