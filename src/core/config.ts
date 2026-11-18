@@ -6,6 +6,8 @@ import type { LanguageOption, LanguageToggle, PlayerText, Scene, Story, UiMode }
  * without editing stories or the player.
  */
 export interface PlayerDefaults {
+  /** Initial locale, after an explicit URL language and before saved/browser preferences. */
+  language?: string;
   uiMode?: UiMode;
   languages?: LanguageOption[];
   languageToggle?: LanguageToggle;

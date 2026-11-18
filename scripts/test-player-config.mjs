@@ -6,7 +6,7 @@ import {
   resolvePauseOnInteract,
   themeCss,
 } from '../src/core/config.ts';
-import { playerCopy } from '../src/core/locale.ts';
+import { playerCopy, resolvePlayerLanguage } from '../src/core/locale.ts';
 import { resolveUiMode } from '../src/core/ui-mode.ts';
 
 const scene = (pauseOnInteract) => ({ id: 's', tool: 't', startTime: 0, endTime: 1, keyframes: [], overlays: [], pauseOnInteract });
@@ -52,5 +52,10 @@ assert.equal(fr.pause, 'Pause (story)');
 assert.equal(fr.retry, 'Retry');
 assert.equal('bogus' in fr, false);
 assert.equal(playerCopy('cy', { cy: { play: 'A' } }, { cy: { play: 'B' } }).play, 'B');
+
+const languages = [{ code: 'en', label: 'English' }, { code: 'cy', label: 'Cymraeg' }];
+assert.equal(resolvePlayerLanguage(languages, null, 'cy'), 'cy');
+assert.equal(resolvePlayerLanguage(languages, 'en', 'cy'), 'en', 'Explicit language overrides the configured initial locale');
+assert.equal(resolvePlayerLanguage(languages, null, 'unsupported'), 'en', 'Unavailable preferred locales must use the existing fallback');
 
 console.log('player-config: ok');

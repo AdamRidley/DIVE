@@ -55,6 +55,7 @@ export class DiveVideo extends LitElement {
   @property({ type: String }) src = ''; // URL to the story JSON
   @property({ type: String, attribute: 'ui-mode' }) uiMode = '';
   @property({ type: String, attribute: 'language-toggle' }) languageToggle = '';
+  @property({ type: Boolean, attribute: 'captions-below', reflect: true }) captionsBelow = false;
 
   @state() private story: Story | null = null;
   @state() private isPlaying = false;
@@ -64,7 +65,7 @@ export class DiveVideo extends LitElement {
   @state() private isFullscreen = false;
   @state() private isUIHidden = false;
   @property({ type: Boolean, attribute: 'muted', reflect: true }) isMuted = false;
-  @state() private captionsEnabled = true;
+  @state() private captionsEnabled = false;
   @state() private descriptionsEnabled = false;
   @state() private activeCues: CaptionCue[] = [];
   @state() private playerLang = 'en';
@@ -75,6 +76,8 @@ export class DiveVideo extends LitElement {
   @state() private sceneReady = true;
   @state() private sceneError = false;
   @state() private toolFading = false;
+  @state() private compactControls = false;
+  private controlLayoutMedia = window.matchMedia('(max-width: 600px)');
   private playWhenReady = false;
   private preparedTools = new Map<string, PreparedTool>();
   private toolSwitchVersion = 0;
@@ -83,6 +86,7 @@ export class DiveVideo extends LitElement {
   @query('#canvas-container') private canvasContainer!: HTMLElement;
   @query('.video-ratio-wrapper') private ratioWrapper?: HTMLElement;
   @query('.video-section') private videoSection?: HTMLElement;
+  @query('.picture-area') private pictureArea?: HTMLElement;
 
   private sequencer: Sequencer | null = null;
   private activeAdapter: IAdapter | null = null;
@@ -97,6 +101,9 @@ export class DiveVideo extends LitElement {
   private urlSyncHandle = 0;
   private allAudioSpecs: ReturnType<typeof collectStoryAudio> = [];
   private stageObserver: ResizeObserver | null = null;
+  private sizeObserver: ResizeObserver | null = null;
+  private sizeTargets = new Set<Element>();
+  private autoHeightFrame = 0;
   private themeSheet: CSSStyleSheet | null = null;
   private stopThemeListener: (() => void) | null = null;
 
@@ -106,12 +113,15 @@ export class DiveVideo extends LitElement {
       position: relative;
       width: 100%;
       max-width: 100%;
-      height: auto;
-      aspect-ratio: var(--aspect-ratio, 9 / 16);
+      height: min(var(--dive-auto-height, 100dvh), 100dvh);
       background: #000;
       overflow: hidden;
       font-family: var(--dive-font, sans-serif);
       outline: none;
+    }
+    :host(:focus-visible) {
+      outline: 3px solid var(--dive-chrome-fg, #fff);
+      outline-offset: -3px;
     }
     :host(:fullscreen) {
       width: 100%;
@@ -120,7 +130,7 @@ export class DiveVideo extends LitElement {
     }
     :host([active-ui-mode="inset"]) {
       display: grid;
-      grid-template-rows: 48px minmax(0, 1fr) 56px;
+      grid-template-rows: auto minmax(0, 1fr) auto;
       background: var(--dive-chrome-bg, #111214);
     }
     :host([active-ui-mode="inset"]:fullscreen) {
@@ -139,6 +149,17 @@ export class DiveVideo extends LitElement {
       grid-row: 2;
       position: relative;
       inset: auto;
+      min-width: 0;
+      min-height: 0;
+      width: 100%;
+      height: 100%;
+    }
+    :host([captions-below]) .video-section {
+      grid-template-rows: minmax(0, 1fr) auto;
+    }
+    .picture-area {
+      display: grid;
+      place-items: center;
       min-width: 0;
       min-height: 0;
       width: 100%;
@@ -206,6 +227,8 @@ export class DiveVideo extends LitElement {
       position: absolute;
       z-index: 12;
       min-width: 180px;
+      box-sizing: border-box;
+      overflow-wrap: anywhere;
       max-width: min(280px, 80%);
       max-height: 55%;
       overflow: auto;
@@ -232,6 +255,8 @@ export class DiveVideo extends LitElement {
     .drawer label {
       display: block;
       width: 100%;
+      box-sizing: border-box;
+      white-space: normal;
       text-align: left;
       background: transparent;
       border: 0;
@@ -287,6 +312,23 @@ export class DiveVideo extends LitElement {
       line-height: 1.35;
       max-width: 100%;
       white-space: pre-line;
+    }
+    .captions.below {
+      position: static;
+      box-sizing: border-box;
+      width: 100%;
+      min-height: calc(3lh + 16px);
+      padding: 8px 16px;
+      background: var(--dive-chrome-bg, #111214);
+      color: #fff;
+      font-size: 20px;
+      line-height: 1.35;
+    }
+    .captions.below .caption-cue {
+      background: none;
+      padding: 0;
+      font-size: inherit;
+      line-height: inherit;
     }
     .buffer-spinner {
       position: absolute;
@@ -367,12 +409,27 @@ export class DiveVideo extends LitElement {
       top: 10px;
       right: 54px;
       z-index: 11;
-      display: flex;
-      gap: 4px;
+      display: grid;
+      grid-template-columns: repeat(var(--language-count), minmax(0, 1fr));
+      isolation: isolate;
       padding: 4px;
       border-radius: 999px;
       background: rgba(0, 0, 0, 0.55);
       transition: opacity 0.25s ease;
+      color: var(--dive-chrome-fg, #fff);
+      user-select: none;
+    }
+    .lang-toggle::before {
+      content: '';
+      position: absolute;
+      left: 4px;
+      bottom: 5px;
+      width: calc((100% - 8px) / var(--language-count));
+      height: 2px;
+      background: linear-gradient(to right, transparent 18%, var(--dive-accent, currentColor) 18% 82%, transparent 82%);
+      transform: translateX(calc(var(--language-index) * 100%));
+      transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+      pointer-events: none;
     }
     .lang-toggle.solo {
       right: 10px;
@@ -391,17 +448,35 @@ export class DiveVideo extends LitElement {
       border: none;
       cursor: pointer;
       margin: 0;
-      padding: 8px 14px;
+      position: relative;
+      min-width: 44px;
+      min-height: 40px;
+      padding: 8px 14px 10px;
       font-size: 15px;
       font-weight: 700;
       letter-spacing: 0.03em;
       border-radius: 999px;
       background: transparent;
-      color: color-mix(in srgb, var(--dive-chrome-fg, #fff) 70%, transparent);
+      color: inherit;
+      font-family: inherit;
+      transition: background-color 160ms ease-out;
     }
     .lang-toggle button[aria-current="true"] {
-      background: var(--dive-accent, rgb(0, 123, 255));
-      color: var(--dive-accent-contrast, #fff);
+      background: transparent;
+      color: inherit;
+    }
+    .lang-toggle button:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .lang-toggle button:focus-visible {
+      outline: 2px solid currentColor;
+      outline-offset: -3px;
+    }
+    .language-name {
+      display: var(--dive-language-name-display, none);
+    }
+    .language-code {
+      display: var(--dive-language-code-display, inline);
     }
     :host([active-ui-mode="inset"]) .controls {
       grid-row: 3;
@@ -475,6 +550,28 @@ export class DiveVideo extends LitElement {
       display: block;
       flex: none;
     }
+    button.play-btn {
+      -webkit-user-select: none;
+      user-select: none;
+      order: var(--dive-play-button-order, 0);
+      width: auto;
+      min-width: var(--dive-play-button-min-width, 40px);
+      height: var(--dive-play-button-height, 40px);
+      padding: var(--dive-play-button-padding, 0);
+      gap: var(--dive-play-button-gap, 0);
+      border: var(--dive-play-button-border, 0);
+      border-radius: var(--dive-play-button-radius, 8px);
+      background: var(--dive-play-button-bg, transparent);
+      font-size: var(--dive-play-button-font-size, inherit);
+      font-weight: var(--dive-play-button-font-weight, normal);
+      box-sizing: border-box;
+    }
+    button.play-btn:hover {
+      background: var(--dive-play-button-hover-bg, rgba(255, 255, 255, 0.16));
+    }
+    .play-label {
+      display: var(--dive-play-button-label-display, none);
+    }
     button.icon-btn.corner-btn {
       position: absolute;
       margin: 0;
@@ -492,7 +589,11 @@ export class DiveVideo extends LitElement {
     button:hover {
       background: var(--dive-button-hover-bg, #666);
     }
+    .scrubber:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
     .scrubber {
+      -webkit-user-select: none;
+      user-select: none;
+      touch-action: none;
       flex-grow: 1;
       position: relative;
       height: 20px;
@@ -506,46 +607,85 @@ export class DiveVideo extends LitElement {
       position: absolute;
       top: 0;
       height: 100%;
-      border-right: 1px solid rgba(255, 255, 255, 0.24);
+      border-right: 1px solid #fff;
       box-sizing: border-box;
       pointer-events: auto;
       display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 2;
+    }
+    .section-band:first-child {
+      border-left: 1px solid #fff;
     }
     .section-label {
+      position: relative;
+      z-index: 3;
       font-size: 10px;
-      color: rgba(255, 255, 255, 0.92);
+      color: #fff;
+      background: rgba(0, 0, 0, 0.75);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       max-width: 100%;
       padding: 0 6px;
-      text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+      text-shadow: none;
       pointer-events: none;
     }
     .progress {
       position: absolute;
-      top: 0;
+      bottom: 0;
       left: 0;
-      height: 100%;
-      background: var(--dive-progress, color-mix(in srgb, var(--dive-accent, rgb(0, 123, 255)) 55%, transparent));
+      height: 5px;
+      background: var(--dive-progress-color, var(--dive-progress, color-mix(in srgb, var(--dive-accent, rgb(0, 123, 255)) 55%, transparent)));
       pointer-events: none;
-      z-index: 1;
+      z-index: 4;
+    }
+    .playhead {
+      position: absolute;
+      top: 0;
+      width: 4px;
+      height: 100%;
+      background: #fff;
+      box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.65);
+      pointer-events: none;
+      z-index: 5;
     }
     .scene-marker {
       position: absolute;
       top: 0;
       width: 2px;
       height: 100%;
-      background: #fff;
-      z-index: 3;
+      background: rgba(255, 255, 255, 0.3);
+      z-index: 2;
+      pointer-events: none;
     }
     .time-display {
-      font-size: 12px;
-      min-width: 80px;
+      -webkit-user-select: none;
+      user-select: none;
+      order: var(--dive-time-display-order, 0);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      white-space: nowrap;
       text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    @media (max-width: 600px) {
+      :host([ui-mode="inset"]:fullscreen) {
+        grid-template-rows: 52px minmax(0, 1fr) auto;
+      }
+      .controls {
+        flex-wrap: wrap;
+      }
+      .scrubber {
+        flex-basis: 100%;
+        order: -1;
+        margin: 0 0 8px;
+      }
+      .time-display {
+        margin-right: auto;
+      }
     }
   `;
 
@@ -557,6 +697,10 @@ export class DiveVideo extends LitElement {
     this.addEventListener('pointermove', this.resetUIHideTimer);
     this.addEventListener('pointerdown', this.resetUIHideTimer);
     this.addEventListener('keydown', this.handleKeydown);
+    this.addEventListener('focusin', this.resetUIHideTimer);
+    this.addEventListener('focusout', this.handleFocusOut);
+    this.compactControls = this.controlLayoutMedia.matches;
+    this.controlLayoutMedia.addEventListener('change', this.handleControlLayoutChange);
     if (!this.hasAttribute('tabindex')) {
       this.tabIndex = 0;
     }
@@ -565,6 +709,13 @@ export class DiveVideo extends LitElement {
 
   protected async firstUpdated() {
     this.stageObserver = new ResizeObserver(() => this.applyStageScale());
+    this.sizeObserver = new ResizeObserver(() => {
+      if (this.autoHeightFrame) return;
+      this.autoHeightFrame = requestAnimationFrame(() => {
+        this.autoHeightFrame = 0;
+        this.applyAutoHeight();
+      });
+    });
     if (this.src) {
       await this.loadStory(this.src);
     }
@@ -587,6 +738,18 @@ export class DiveVideo extends LitElement {
       this.setAttribute('active-ui-mode', mode);
     }
     this.applyStageScale();
+    this.observeSize();
+    if (changedProperties.has('playerLang')) this.updateFrameTitles();
+  }
+
+  private updateFrameTitles() {
+    for (const [sceneId, tool] of this.preparedTools) {
+      const frame = tool.container.querySelector('iframe');
+      if (!frame) continue;
+      const scene = this.story?.scenes.find(item => item.id === sceneId);
+      const label = this.story?.timelineSections?.find(section => section.startTime === scene?.startTime)?.label;
+      frame.title = resolveLocalized(label || this.story?.title || sceneId, this.playerLang);
+    }
   }
 
   disconnectedCallback(): void {
@@ -598,6 +761,9 @@ export class DiveVideo extends LitElement {
     this.removeEventListener('pointermove', this.resetUIHideTimer);
     this.removeEventListener('pointerdown', this.resetUIHideTimer);
     this.removeEventListener('keydown', this.handleKeydown);
+    this.removeEventListener('focusin', this.resetUIHideTimer);
+    this.removeEventListener('focusout', this.handleFocusOut);
+    this.controlLayoutMedia.removeEventListener('change', this.handleControlLayoutChange);
     if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
     if (this.urlSyncHandle) window.clearTimeout(this.urlSyncHandle);
     this.toolSwitchVersion++;
@@ -606,6 +772,10 @@ export class DiveVideo extends LitElement {
     this.preparedTools.clear();
     this.activeAdapter = null;
     this.stageObserver?.disconnect();
+    this.sizeObserver?.disconnect();
+    this.sizeTargets.clear();
+    cancelAnimationFrame(this.autoHeightFrame);
+    this.autoHeightFrame = 0;
     this.audioEngine.dispose();
   }
 
@@ -663,7 +833,8 @@ export class DiveVideo extends LitElement {
   }
 
   private resetUIHideTimer = () => {
-    const keepChrome = this.activeUiMode() === 'inset' || !this.isPlaying || this.settingsOpen || this.chaptersOpen || this.ended || !this.sceneReady;
+    const keyboardFocus = this.matches(':focus-visible') || !!this.shadowRoot?.querySelector(':focus-visible');
+    const keepChrome = this.activeUiMode() === 'inset' || !this.isPlaying || this.settingsOpen || this.chaptersOpen || this.ended || !this.sceneReady || keyboardFocus;
     this.isUIHidden = false;
     if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
     if (keepChrome) {
@@ -674,6 +845,18 @@ export class DiveVideo extends LitElement {
       this.isUIHidden = true;
     }, delay);
   }
+
+  private handleFocusOut = () => {
+    queueMicrotask(() => this.resetUIHideTimer());
+  };
+
+  private handleControlLayoutChange = () => {
+    const restorePlayFocus = this.shadowRoot?.activeElement?.getAttribute('part') === 'play-button';
+    this.compactControls = this.controlLayoutMedia.matches;
+    if (restorePlayFocus) {
+      void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLElement>('[part="play-button"]')?.focus());
+    }
+  };
 
   private handlePlayCatcher = (event: Event) => {
     event.preventDefault();
@@ -697,16 +880,55 @@ export class DiveVideo extends LitElement {
       return;
     }
     this.stageObserver.disconnect();
-    const cell = this.videoSection || this.ratioWrapper;
+    const cell = this.pictureArea || this.videoSection || this.ratioWrapper;
     if (cell) {
       this.stageObserver.observe(cell);
       this.applyStageScale();
     }
   }
 
+  private observeSize() {
+    if (!this.sizeObserver) return;
+    const targets = new Set<Element>([
+      this,
+      ...this.renderRoot.querySelectorAll('.chrome-top, .controls, .captions.below'),
+    ]);
+    for (const target of this.sizeTargets) {
+      if (!targets.has(target)) this.sizeObserver.unobserve(target);
+    }
+    for (const target of targets) {
+      if (!this.sizeTargets.has(target)) this.sizeObserver.observe(target);
+    }
+    this.sizeTargets = targets;
+    this.applyAutoHeight();
+  }
+
+  private applyAutoHeight() {
+    const style = getComputedStyle(this);
+    const paddingWidth = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+    const aspect = parseAspectRatio(this.story?.aspectRatio);
+    const width = this.clientWidth - paddingWidth;
+    if (width <= 0) return;
+    let height = width * aspect.height / aspect.width;
+    const extras = this.activeUiMode() === 'inset'
+      ? '.chrome-top, .controls, .captions.below'
+      : '.captions.below';
+    for (const element of this.renderRoot.querySelectorAll(extras)) {
+      height += element.getBoundingClientRect().height;
+    }
+    if (style.boxSizing === 'border-box') {
+      height += parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+        + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    }
+    const value = `${height}px`;
+    if (this.style.getPropertyValue('--dive-auto-height') !== value) {
+      this.style.setProperty('--dive-auto-height', value);
+    }
+  }
+
   private applyStageScale() {
     const wrap = this.ratioWrapper;
-    const cell = this.videoSection || wrap;
+    const cell = this.pictureArea || this.videoSection || wrap;
     if (!wrap || !cell) {
       return;
     }
@@ -725,7 +947,7 @@ export class DiveVideo extends LitElement {
 
   private async loadStory(url: string) {
     try {
-      this.storyBaseUrl = new URL(url, window.location.href).href;
+      this.storyBaseUrl = new URL(url, document.baseURI).href;
       this.packSession = null;
       const urlState = readDiveUrlState();
 
@@ -751,13 +973,13 @@ export class DiveVideo extends LitElement {
 
       this.applyAspectRatio(this.story?.aspectRatio);
       this.observeStage();
-      this.playerLang = resolvePlayerLanguage(this.storyLanguages(), urlState.lang);
+      this.playerLang = resolvePlayerLanguage(this.storyLanguages(), urlState.lang, playerDefaults().language);
       this.allAudioSpecs = this.story ? collectStoryAudio(this.story, this.storyBaseUrl) : [];
       this.applyLocaleMedia();
       this.captionTracks = this.story
         ? await resolveCaptionTracks(this.story.captions, this.storyBaseUrl)
         : [];
-      this.captionsEnabled = this.captionTracks.some((track) => track.kind !== 'descriptions');
+      this.captionsEnabled = false;
       this.sceneReady = false;
       this.hasStarted = false;
       this.ended = false;
@@ -955,6 +1177,7 @@ export class DiveVideo extends LitElement {
       adapter.setPlaybackState?.(false, scene.startTime);
       adapter.setPreloading?.(true);
       adapter.mount(prepared.container, data);
+      this.updateFrameTitles();
       adapter.setState(scene.keyframes[0]?.state || {}, scene.startTime);
       if (!adapter.onReady) prepared.ready = true;
       if (!prepared.ready) {
@@ -1114,6 +1337,8 @@ export class DiveVideo extends LitElement {
       return;
     }
 
+    e.preventDefault();
+    e.currentTarget.focus({ preventScroll: true });
     this.isScrubbing = true;
     this.scrubberElement = e.currentTarget;
     this.seekFromScrubberClientX(e.clientX, this.scrubberElement);
@@ -1212,6 +1437,7 @@ export class DiveVideo extends LitElement {
     this.settingsOpen = !this.settingsOpen;
     if (this.settingsOpen) {
       this.chaptersOpen = false;
+      void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLElement>('.settings button, .settings input')?.focus());
     }
   };
 
@@ -1219,6 +1445,7 @@ export class DiveVideo extends LitElement {
     this.chaptersOpen = !this.chaptersOpen;
     if (this.chaptersOpen) {
       this.settingsOpen = false;
+      void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLElement>('.chapters button')?.focus());
     }
   };
 
@@ -1235,7 +1462,9 @@ export class DiveVideo extends LitElement {
     if (!scene || !this.sequencer) {
       return;
     }
+    const restoreChaptersFocus = this.chaptersOpen;
     this.chaptersOpen = false;
+    if (restoreChaptersFocus) void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLElement>('[aria-controls="chapters-drawer"]')?.focus());
     this.ended = false;
     this.lastVisualState = null;
     this.audioHardSeek = true;
@@ -1286,8 +1515,17 @@ export class DiveVideo extends LitElement {
     if (event.altKey || event.ctrlKey || event.metaKey) {
       return;
     }
-    const target = event.target as HTMLElement | null;
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+    if (event.defaultPrevented) return;
+    if (event.key === 'Escape' && (this.settingsOpen || this.chaptersOpen)) {
+      const drawer = this.settingsOpen ? 'settings-drawer' : 'chapters-drawer';
+      this.settingsOpen = false;
+      this.chaptersOpen = false;
+      event.preventDefault();
+      void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLElement>(`[aria-controls="${drawer}"]`)?.focus());
+      return;
+    }
+    const target = event.composedPath()[0] as HTMLElement | null;
+    if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select, button, a, summary, [role="button"], [role="slider"]'))) {
       return;
     }
     switch (event.key) {
@@ -1341,6 +1579,18 @@ export class DiveVideo extends LitElement {
       default:
         break;
     }
+  };
+
+  private handleSeekKeydown = (event: KeyboardEvent) => {
+    if (!this.story || event.altKey || event.ctrlKey || event.metaKey) return;
+    const delta = ({ ArrowLeft: -5000, ArrowDown: -5000, ArrowRight: 5000, ArrowUp: 5000,
+      PageDown: -this.story.duration / 10, PageUp: this.story.duration / 10 } as Record<string, number>)[event.key];
+    if (delta !== undefined) this.nudge(delta);
+    else if (event.key === 'Home') this.nudge(-this.currentTime);
+    else if (event.key === 'End') this.nudge(this.story.duration - this.currentTime);
+    else return;
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   private nudge(deltaMs: number) {
@@ -1488,7 +1738,7 @@ export class DiveVideo extends LitElement {
     }
 
     const duration = this.story.duration;
-    const percent = (this.currentTime / duration) * 100;
+    const percent = Math.min(100, Math.max(0, (this.currentTime / duration) * 100));
     const timelineSections = this.getTimelineSections();
     const activeScene = this.story.scenes.find((scene) => scene.id === this.activeToolId);
     const activeSceneData = activeScene?.data;
@@ -1516,9 +1766,15 @@ export class DiveVideo extends LitElement {
     const chromeMode = this.activeUiMode();
     const chromeHidden = chromeMode === 'autohide' && this.isUIHidden;
     const showCatcher = this.isPlaying && (chromeMode === 'autohide' || this.pauseOnInteractActive());
+    const captionLayer = this.captionsEnabled && (this.activeCues.length || this.captionsBelow) ? html`
+      <div class="captions ${this.captionsBelow ? 'below' : ''}" part="captions" aria-hidden="true">
+        ${this.activeCues.map((cue) => html`<div class="caption-cue">${cue.text}</div>`)}
+      </div>
+    ` : '';
 
-    return html`
+    const videoSection = html`
       <div class="video-section">
+        <div class="picture-area">
         <div
           class="video-ratio-wrapper"
           style="--aspect-ratio: ${aspectCss(aspect)}; --ar-w: ${aspect.width}; --ar-h: ${aspect.height};"
@@ -1541,11 +1797,7 @@ export class DiveVideo extends LitElement {
             `)}
           </div>
 
-          ${this.captionsEnabled && this.activeCues.length ? html`
-            <div class="captions" part="captions" aria-hidden="true">
-              ${this.activeCues.map((cue) => html`<div class="caption-cue">${cue.text}</div>`)}
-            </div>
-          ` : ''}
+          ${this.captionsBelow ? '' : captionLayer}
 
           ${this.ended ? html`
             <div class="end-screen" part="end-screen">
@@ -1554,9 +1806,26 @@ export class DiveVideo extends LitElement {
             </div>
           ` : ''}
         </div>
+        </div>
+        ${this.captionsBelow ? captionLayer : ''}
       </div>
+    `;
+    const playButton = html`
+      <button
+        class="icon-btn play-btn"
+        part="play-button"
+        @click=${this.togglePlay}
+        title="${this.isPlaying ? ui.pause : ui.play}"
+        aria-label="${this.isPlaying ? ui.pause : ui.play}"
+      >
+        ${this.isPlaying
+          ? html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>`
+          : html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M8 5v14l11-7z"/></svg>`}
+        <span class="play-label" aria-hidden="true">${this.isPlaying ? ui.pause : ui.play}</span>
+      </button>
+    `;
 
-      <!-- Controls Layer -->
+    return html`
       <div class="chrome-top">
       <button
         class="icon-btn corner-btn chapters ${chromeHidden ? 'hidden' : ''}"
@@ -1564,22 +1833,26 @@ export class DiveVideo extends LitElement {
         title=${ui.chapters}
         aria-label=${ui.chapters}
         aria-pressed=${this.chaptersOpen}
+        aria-expanded=${this.chaptersOpen}
+        aria-controls="chapters-drawer"
       >
         <svg viewBox="0 0 24 24"><path d="M3 5h18v2H3V5zm0 6h18v2H3v-2zm0 6h18v2H3v-2z"/></svg>
       </button>
 
       <div class="chrome-top-right">
         ${langPlacement === 'inline' ? html`
-          <div class="lang-toggle ${chromeHidden ? 'hidden' : ''} ${hasSettings ? '' : 'solo'}" part="lang-toggle" role="group" aria-label=${ui.language}>
+          <div class="lang-toggle ${chromeHidden ? 'hidden' : ''} ${hasSettings ? '' : 'solo'}" part="lang-toggle" role="group" aria-label=${ui.language}
+            style="--language-count: ${languages.length}; --language-index: ${Math.max(0, languages.findIndex(item => item.code === this.playerLang))}">
             ${languages.map((item) => html`
               <button
                 type="button"
+                part="language-button ${item.code === this.playerLang ? 'active-language-button' : ''}"
                 lang=${item.code}
                 title=${item.label}
-                aria-label="${item.label} (${item.code.toUpperCase()})"
+                aria-label="${item.code.toUpperCase()} ${item.label}"
                 aria-current=${item.code === this.playerLang}
                 @click=${() => this.setLanguage(item.code)}
-              >${item.code.toUpperCase()}</button>
+              ><span class="language-code" aria-hidden="true">${item.code.toUpperCase()}</span><span class="language-name" aria-hidden="true">${item.label}</span></button>
             `)}
           </div>
         ` : ''}
@@ -1591,6 +1864,8 @@ export class DiveVideo extends LitElement {
             title=${ui.settings}
             aria-label=${ui.settings}
             aria-pressed=${this.settingsOpen}
+            aria-expanded=${this.settingsOpen}
+            aria-controls="settings-drawer"
           >
             <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.2 7.2 0 0 0-1.63-.94l-.36-2.54A.49.49 0 0 0 13.9 2h-3.8a.49.49 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.55-1.63.94l-2.39-.96a.49.49 0 0 0-.59.22L2.73 8.47a.49.49 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.13.23.4.32.64.22l2.39-.96c.5.39 1.04.7 1.63.94l.36 2.54c.05.24.25.41.48.41h3.8c.23 0 .43-.17.48-.41l.36-2.54c.59-.24 1.13-.55 1.63-.94l2.39.96c.23.09.51 0 .64-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
           </button>
@@ -1598,19 +1873,16 @@ export class DiveVideo extends LitElement {
       </div>
       </div>
 
+      ${videoSection}
+
       <div class="controls ${chromeHidden ? 'hidden' : ''}" part="controls">
-        <button
-          class="icon-btn"
-          @click=${this.togglePlay}
-          title="${this.isPlaying ? ui.pause : ui.play}"
-          aria-label="${this.isPlaying ? ui.pause : ui.play}"
-        >
-          ${this.isPlaying
-            ? html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>`
-            : html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M8 5v14l11-7z"/></svg>`}
-        </button>
+        ${this.compactControls ? '' : playButton}
         
-        <div class="scrubber" part="scrubber" @pointerdown=${this.handleScrubPointerDown}>
+        <div class="scrubber" part="scrubber" role="slider" tabindex="0"
+          aria-label=${ui.progress} aria-valuemin="0" aria-valuemax=${Math.floor(duration / 1000)}
+          aria-valuenow=${Math.floor(this.currentTime / 1000)}
+          aria-valuetext="${this.formatTime(this.currentTime)} / ${this.formatTime(duration)}"
+          @keydown=${this.handleSeekKeydown} @pointerdown=${this.handleScrubPointerDown}>
           ${timelineSections.map((section, index) => {
             const startPercent = (section.startTime / duration) * 100;
             const widthPercent = ((section.endTime - section.startTime) / duration) * 100;
@@ -1632,17 +1904,19 @@ export class DiveVideo extends LitElement {
           })}
 
           <div class="progress" style="width: ${percent}%"></div>
+          <div class="playhead" aria-hidden="true" style="left: clamp(0px, calc(${percent}% - 2px), calc(100% - 4px));"></div>
           
           <!-- Scene Markers -->
-          ${this.story.scenes.map(s => {
+          ${this.story.scenes.filter(s => !timelineSections.some(section => section.startTime === s.startTime)).map(s => {
             const pos = (s.startTime / duration) * 100;
             const label = timelineSections.find((section) => section.startTime === s.startTime)?.label || s.id;
             return html`<div class="scene-marker" style="left: ${pos}%" title="${resolveLocalized(label, this.playerLang)}"></div>`;
           })}
         </div>
 
-        <div class="time-display">
-          ${this.formatTime(this.currentTime)} / ${this.formatTime(duration)}
+        ${this.compactControls ? playButton : ''}
+        <div class="time-display" part="time-display">
+          <span>${this.formatTime(this.currentTime)} / ${this.formatTime(duration)}</span>
         </div>
 
         ${hasAudio ? html`
@@ -1661,13 +1935,15 @@ export class DiveVideo extends LitElement {
 
         ${hasCaptions ? html`
           <button
-            class="icon-btn"
+            class="icon-btn captions-btn"
             @click=${this.toggleCaptions}
             title="${this.captionsEnabled ? ui.hideCaptions : ui.showCaptions}"
             aria-label="${this.captionsEnabled ? ui.hideCaptions : ui.showCaptions}"
             aria-pressed=${this.captionsEnabled}
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z"/></svg>
+            ${this.captionsEnabled
+              ? html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z"/></svg>`
+              : html`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 11H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z"/></svg>`}
           </button>
         ` : ''}
 
@@ -1679,7 +1955,7 @@ export class DiveVideo extends LitElement {
       </div>
 
       ${this.chaptersOpen ? html`
-        <div class="drawer chapters" part="chapters">
+        <div class="drawer chapters" part="chapters" id="chapters-drawer" role="region" aria-label=${ui.chapters}>
           <h3>${ui.chapters}</h3>
           ${this.story.scenes.map((scene) => html`
             <button
@@ -1691,7 +1967,7 @@ export class DiveVideo extends LitElement {
       ` : ''}
 
       ${this.settingsOpen ? html`
-        <div class="drawer settings" part="settings">
+        <div class="drawer settings" part="settings" id="settings-drawer" role="region" aria-label=${ui.settings}>
           <h3>${ui.settings}</h3>
           ${showLangMenu ? html`
             <h3>${ui.language}</h3>

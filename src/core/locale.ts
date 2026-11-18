@@ -11,6 +11,7 @@ const PLAYER_COPY: Record<string, Record<PlayerTextKey, string>> = {
     mute: 'Mute', unmute: 'Unmute', hideCaptions: 'Hide captions', showCaptions: 'Show captions',
     fullscreen: 'Toggle Fullscreen', captions: 'Captions', audioDescription: 'Audio description',
     data: 'Data', dataView: 'Current data view for exploration', dataLoading: 'Data loading or external',
+    progress: 'Video progress',
   },
   cy: {
     loadingStory: 'Llwytho’r Stori...', loadingScene: 'Llwytho golygfa', end: 'Diwedd', replay: 'Chwarae eto',
@@ -19,6 +20,7 @@ const PLAYER_COPY: Record<string, Record<PlayerTextKey, string>> = {
     mute: 'Tewi', unmute: 'Dad-dewi', hideCaptions: 'Cuddio isdeitlau', showCaptions: 'Dangos isdeitlau',
     fullscreen: 'Newid sgrin lawn', captions: 'Isdeitlau', audioDescription: 'Disgrifiad sain',
     data: 'Data', dataView: 'Golwg data cyfredol i’w archwilio', dataLoading: 'Data yn llwytho neu’n allanol',
+    progress: 'Cynnydd y fideo',
   },
 };
 
@@ -26,7 +28,7 @@ export type PlayerTextKey =
   | 'loadingStory' | 'loadingScene' | 'end' | 'replay' | 'sceneError' | 'retry'
   | 'chapters' | 'language' | 'settings' | 'play' | 'pause' | 'mute' | 'unmute'
   | 'hideCaptions' | 'showCaptions' | 'fullscreen' | 'captions' | 'audioDescription'
-  | 'data' | 'dataView' | 'dataLoading';
+  | 'data' | 'dataView' | 'dataLoading' | 'progress';
 
 function textFor(source: PlayerText | undefined, lang: string): Record<string, string> {
   if (!source) return {};
@@ -111,9 +113,13 @@ export function browserPreferredLanguage(options?: LanguageOption[]): string | n
 export function resolvePlayerLanguage(
   options: LanguageOption[] | undefined,
   explicit?: string | null,
+  preferred?: string | null,
 ): string {
   if (explicit && isLanguageAllowed(explicit, options)) {
     return explicit;
+  }
+  if (preferred && isLanguageAllowed(preferred, options)) {
+    return preferred;
   }
   const stored = storedLanguage();
   if (stored && isLanguageAllowed(stored, options)) {

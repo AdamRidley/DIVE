@@ -25,6 +25,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run typecheck",
+    "test:controls": "node scripts/test-player-controls.mjs",
     "dev": "vite",
     "build": "vite build && tsc -p tsconfig.dts.json",
     "build:example": "vite build -c examples/the_wealth_and_health_of_nations/vite.config.example.mjs",
@@ -63,6 +64,7 @@
     "@types/d3": "^7.4.3",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
+    "playwright": "^1.65.1",
     "typescript": "^5.9.3",
     "vite": "^8.0.1"
   }

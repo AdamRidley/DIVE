@@ -56,7 +56,19 @@ Classic (non-module) script tag:
 
 The IIFE build exposes `window.DIVE` (`DiveVideo`, `registerTool`, `configure`, `Sequencer`).
 
-Story JSON can include `aspectRatio` (default `9:16`), `audio` (URL or clip objects), and `captions` (WebVTT URL or `{ startTime, endTime, text }` cues). If you only set the element's width, it sizes its height from the aspect ratio and letterboxes when the box is forced (explicit height or fullscreen).
+Story JSON can include `aspectRatio` (default `9:16`), `audio` (URL or clip objects), and `captions` (WebVTT URL or `{ startTime, endTime, text }` cues). The default height follows available width and the story aspect ratio, adding inset controls and below-video captions, capped at `100dvh`. The picture is contained without cropping at that cap. Explicit CSS `height` overrides automatic sizing and its viewport cap; `width`, `min-height` and `max-height` also remain available. Forced boxes and fullscreen may letterbox.
+
+Add `captions-below` to place captions in a separate band beneath the picture.
+Captions start disabled; the CC icon is outlined when off and filled when on.
+Click CC or press C to toggle. Sound remains enabled by default unless the host
+sets `muted`.
+
+The timeline shows elapsed/total time without a percentage. Section edges remain
+white, internal scene ticks are faded behind labels, and progress is a thin strip
+with a playhead. Scrubbing and keyboard seeking do not select control text.
+Controls remain visible while keyboard-focused, and drawers support keyboard
+focus entry and restoration. Relative story URLs respect the page's
+`<base>` element.
 
 Use `<dive-video src="./story.json" muted></dive-video>` to start with sound off; the speaker control enables it on demand. The reflected `isMuted` property also supports programmatic changes. Player controls have built-in English and Welsh text; other languages (or rewording) come from `playerText` (see below). `dive-language-change` emits `{ lang }` in its event detail when the active language changes.
 
@@ -64,6 +76,12 @@ Use `<dive-video src="./story.json" muted></dive-video>` to start with sound off
 
 - `pauseOnInteract` (boolean) can be set on the story, a scene, or a keyframe `state`. The most specific value wins. When true, tapping a playing tool pauses it (autohide's first tap still just reveals the chrome) and so does an iframe `DIVE_INTERACT`. Interaction never resumes playback.
 - `languageToggle` on the story (or the `language-toggle` attribute) places the language picker: `menu` (settings cog, default), `inline` (EN/CY pill in the chrome), `auto` (inline for exactly two languages, menu otherwise), or `none`.
+- The inline picker is a joined pill with a sliding accent-coloured underline.
+  Codes are shown by default; `--dive-language-name-display: inline` and
+  `--dive-language-code-display: none` switch to full names.
+- `configure({ language: 'cy' })` sets the initial locale after explicit URL
+  `lang` and before saved/browser preferences. Unsupported locales fall back
+  to existing preferences; with no configured locale public behavior is unchanged.
 - `playerText` sets player UI strings per language, e.g. `{ "fr": { "play": "Lire", "pause": "Pause" } }`. Keys: `loadingStory`, `loadingScene`, `end`, `replay`, `sceneError`, `retry`, `chapters`, `language`, `settings`, `play`, `pause`, `mute`, `unmute`, `hideCaptions`, `showCaptions`, `fullscreen`, `captions`, `audioDescription`, `data`, `dataView`, `dataLoading`. Missing keys fall back to English. Story `playerText` beats `configure({ playerText })`, which beats the built-in text.
 - Colours and font are CSS custom properties, so a page can rebrand the player without touching it:
 
@@ -96,6 +114,37 @@ configure({
   theme: { '--dive-accent': '#0a7c6b' },
 });
 ```
+
+The public play button remains compact and icon-only. A labelled button is opt-in
+styling, with a localized visible Play/Pause label and the same accessible name:
+
+```js
+configure({
+  theme: {
+    '--dive-play-button-label-display': 'inline',
+    '--dive-play-button-min-width': '120px',
+    '--dive-play-button-height': '48px',
+    '--dive-play-button-padding': '10px 16px',
+    '--dive-play-button-gap': '10px',
+    '--dive-play-button-border': '0',
+    '--dive-play-button-radius': '8px',
+    '--dive-play-button-bg': 'rgba(255, 255, 255, 0.08)',
+    '--dive-play-button-hover-bg': 'rgba(255, 255, 255, 0.16)',
+    '--dive-play-button-font-size': '18px',
+    '--dive-play-button-font-weight': '700',
+  },
+});
+```
+
+These variables also work in page CSS, which wins over configured defaults.
+`--dive-play-button-order` and `--dive-time-display-order` optionally change visual
+ordering (both default to `0`). The `play-button` and `time-display` CSS parts remain
+available. `--dive-progress-color` overrides the timeline played-strip colour,
+falling back to `--dive-progress` and then the accent.
+
+Adapters receive the active keyframe state on mounting, including direct entry
+or seeking into a scene. Tool-owned deterministic interpolation/animations still
+belong in each tool, not in the sequencer.
 
 ## Local development
 
