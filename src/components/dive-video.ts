@@ -184,7 +184,7 @@ export class DiveVideo extends LitElement {
       left: 0;
       transform-origin: 0 0;
       transform: scale(var(--stage-scale, 1));
-      transition: opacity 0.34s ease, transform 0.34s ease;
+      transition: opacity 0.34s ease;
     }
     .play-catcher {
       position: absolute;

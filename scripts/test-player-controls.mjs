@@ -222,6 +222,9 @@ try {
     rule.style.removeProperty('height');
   });
   const player = page.locator('dive-video');
+  assert.equal(await player.locator('#canvas-container').evaluate(element =>
+    getComputedStyle(element).transitionProperty), 'opacity',
+  'Content scaling must fit instantly; only scene opacity may transition');
   await player.evaluate(element => {
     element.style.width = '720px';
     element.setAttribute('ui-mode', 'inset');
