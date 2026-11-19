@@ -1082,6 +1082,7 @@ export class DiveVideo extends LitElement {
   private handlePointerInteraction = () => {
     this.setHostState('pointer-input', true);
     this.keyboardNavigationActive = false;
+    if (this.activeUiMode() === 'autohide' && this.isUIHidden) return;
     this.resetUIHideTimer();
   };
 

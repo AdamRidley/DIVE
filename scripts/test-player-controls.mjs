@@ -24,6 +24,7 @@ const story = {
   title: 'Control regression fixture',
   duration: 60000,
   aspectRatio: '16:9',
+  pauseOnInteract: true,
   languages: [{ code: 'en', label: 'English' }, { code: 'cy', label: 'Cymraeg' }],
   audio: [{ src: '/__controls-audio.wav', role: 'narration' }],
   settingsLinks: [{ label: 'Download fixture', href: '/__controls-download.txt', download: 'fixture.txt' }],
@@ -438,6 +439,32 @@ try {
   }), 'Autohide must provide a non-interactive fading top scrim behind transparent header buttons');
   await play.click();
   await page.waitForFunction(() => document.querySelector('dive-video').isPlaying);
+  await player.evaluate(async element => {
+    element.setAttribute('ui-mode', 'inset');
+    await element.updateComplete;
+    element.isUIHidden = false;
+    element.shadowRoot.querySelector('.play-catcher').dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, composed: true, pointerType: 'touch',
+    }));
+  });
+  assert.equal(await player.evaluate(element => element.isPlaying), false,
+    'A stage tap in inset mode must pause because controls are always visible');
+  await play.click();
+  await page.waitForFunction(() => document.querySelector('dive-video').isPlaying);
+  const tapState = await player.evaluate(async element => {
+    element.setAttribute('ui-mode', 'autohide');
+    await element.updateComplete;
+    element.isUIHidden = true;
+    element.shadowRoot.querySelector('.play-catcher').dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, composed: true, pointerType: 'touch',
+    }));
+    await element.updateComplete;
+    return { hidden: element.isUIHidden, playing: element.isPlaying };
+  });
+  assert.equal(tapState.hidden, false,
+    'The first stage tap in autohide mode must reveal controls');
+  assert.equal(tapState.playing, true,
+    'The first stage tap in autohide mode must reveal controls without pausing');
   await page.mouse.move(100, 100);
   await page.mouse.move(100, 850);
   await page.waitForFunction(() => document.querySelector('dive-video').isUIHidden, null, { timeout: 1000 });
