@@ -59,9 +59,18 @@ The IIFE build exposes `window.DIVE` (`DiveVideo`, `registerTool`, `configure`, 
 Story JSON can include `aspectRatio` (default `9:16`), `audio` (URL or clip objects), and `captions` (WebVTT URL or `{ startTime, endTime, text }` cues). The default height follows available width and the story aspect ratio, adding inset controls and below-video captions, capped at `100dvh`. The picture is contained without cropping at that cap. Explicit CSS `height` overrides automatic sizing and its viewport cap; `width`, `min-height` and `max-height` also remain available. Forced boxes and fullscreen may letterbox.
 
 Add `captions-below` to place captions in a separate band beneath the picture.
-Captions start disabled; the CC icon is outlined when off and filled when on.
-Click CC or press C to toggle. Sound remains enabled by default unless the host
-sets `muted`.
+When caption tracks are available, captions start enabled, preserving the existing
+default; the CC button toggles them. Sound remains enabled by default unless the
+host sets `muted`.
+
+Scenes may provide a localized `label` for chapter controls, timeline markers,
+tooltips, and iframe titles; the scene ID remains the fallback. `settingsLinks`
+adds localized resource/download links to the Settings menu. Relative links are
+resolved against the story URL and included in `.dive` packs. The menu also offers
+viewer layout (Default, Autohide, Inset) and caption location (Overlaid, Below)
+choices. These choices do not rewrite story values or host attributes; set
+`showUiModeSetting` or `showCaptionLocationSetting` to `false` on the story or in
+`configure()` to hide the respective selector.
 
 The timeline shows elapsed/total time without a percentage. Section edges remain
 white, internal scene ticks are faded behind labels, and progress is a thin strip
@@ -95,6 +104,7 @@ Automatic height lives in the shadow stylesheet rather than generated host style
   `lang` and before saved/browser preferences. Unsupported locales fall back
   to existing preferences; with no configured locale public behavior is unchanged.
 - `playerText` sets player UI strings per language, e.g. `{ "fr": { "play": "Lire", "pause": "Pause" } }`. Keys: `loadingStory`, `loadingScene`, `end`, `replay`, `sceneError`, `retry`, `chapters`, `language`, `settings`, `play`, `pause`, `mute`, `unmute`, `hideCaptions`, `showCaptions`, `fullscreen`, `captions`, `audioDescription`, `data`, `dataView`, `dataLoading`. Missing keys fall back to English. Story `playerText` beats `configure({ playerText })`, which beats the built-in text.
+- `configure({ showUiModeSetting: false, showCaptionLocationSetting: false })` hides the corresponding viewer preference controls. Story settings override configured values.
 - Colours and font are CSS custom properties, so a page can rebrand the player without touching it:
 
 ```css
@@ -170,8 +180,16 @@ npm run dev
 
 ```bash
 npm run test:ci          # typecheck + library build + dist smoke check
+npm run test:controls    # browser controls and responsive-layout regressions (requires Playwright Chromium)
+npm run test:caption-authoring
 npm run build            # ESM + IIFE + typings → dist/
 npm run build:example    # example site → dist-example/
+```
+
+Install the browser once before running the browser test locally:
+
+```bash
+npx playwright install chromium
 ```
 
 ## CI/CD

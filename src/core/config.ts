@@ -9,6 +9,10 @@ export interface PlayerDefaults {
   /** Initial locale, after an explicit URL language and before saved/browser preferences. */
   language?: string;
   uiMode?: UiMode;
+  /** Show the viewer's Default / Autohide / Inset layout selector. Defaults to true. */
+  showUiModeSetting?: boolean;
+  /** Show the viewer's Overlaid / Below caption location selector. Defaults to true. */
+  showCaptionLocationSetting?: boolean;
   languages?: LanguageOption[];
   languageToggle?: LanguageToggle;
   pauseOnInteract?: boolean;

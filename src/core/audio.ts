@@ -175,6 +175,16 @@ export class AudioEngine {
     }
   }
 
+  setVolume(volume: number): void {
+    if (!Number.isFinite(volume) || volume < 0 || volume > 1) {
+      throw new RangeError('Volume must be between 0 and 1');
+    }
+    this.masterVolume = volume;
+    for (const clip of this.clips) {
+      clip.element.volume = clip.spec.volume * volume;
+    }
+  }
+
   unlock(): void {
     if (this.unlocked) {
       return;

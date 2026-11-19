@@ -8,10 +8,12 @@ Members are written in this order:
 
 1. `dive.json` — tiny TOC (first zip entry, not a custom header)
 2. `story.json`
-3. Video-wide media: soundtrack, captions/VTT, poster, story `assets` / `dependencies`
+3. Video-wide media: soundtrack, captions/VTT, poster, local `settingsLinks` resources (all languages), story `assets` / `dependencies`
 4. Each scene’s tool, data, overlay media, and `dependencies`, in timeline order
 
 Absolute `http(s):` and `data:` refs stay outside the pack.
+Settings links support relative resources and HTTP(S) URLs, not `data:` URLs.
+Packed links are rewritten to blob URLs and retain their authored download filenames.
 
 ## Pack
 

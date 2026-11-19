@@ -22,10 +22,16 @@ try {
   });
   const story = {
     title: 'Loading regression', duration: 2000,
+    settingsLinks: [
+      { label: 'Transcript', href: { en: 'transcript.txt', cy: 'transcript-cy.txt' }, download: 'transcript.txt' },
+      { label: 'External', href: 'https://example.org/report', newTab: true },
+    ],
     scenes: [scene('one', 'tools/one.html', 0), scene('two', 'tools/two.html', 1000)],
   };
   await mkdir(resolve(temp, 'tools'));
   await writeFile(resolve(temp, 'story.json'), JSON.stringify(story));
+  await writeFile(resolve(temp, 'transcript.txt'), 'English transcript');
+  await writeFile(resolve(temp, 'transcript-cy.txt'), 'Welsh transcript');
   await writeFile(resolve(temp, 'tools', 'one.html'),
     '<html><head><script src="helper.js"></script></head><body><iframe src="./nested.html"></iframe></body></html>');
   await writeFile(resolve(temp, 'tools', 'two.html'),
@@ -39,6 +45,13 @@ try {
   const bytes = new Uint8Array(await readFile(path));
   const pack = await loadDivePack(bytes);
   for (const url of pack.urls.values()) urls.add(url);
+  for (const [lang, text] of [['en', 'English transcript'], ['cy', 'Welsh transcript']]) {
+    const href = pack.story.settingsLinks[0].href[lang];
+    assert.ok(href.startsWith('blob:'), 'Localized settings resources must resolve to packed blobs');
+    assert.equal(await (await nativeFetch(href)).text(), text);
+  }
+  assert.equal(pack.story.settingsLinks[0].download, 'transcript.txt');
+  assert.equal(pack.story.settingsLinks[1].href, 'https://example.org/report');
   for (const name of ['tools/helper.js', 'tools/nested-helper.js', 'tools/nested.html']) {
     assert.ok(pack.manifest.shared.includes(name), `${name} must be available before the first scene`);
   }

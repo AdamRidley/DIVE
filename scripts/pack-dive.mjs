@@ -93,6 +93,9 @@ function collectStringRefs(story) {
   };
 
   addShared(story.poster);
+  for (const link of story.settingsLinks || []) {
+    addLocalized(addShared, link.href);
+  }
   if (typeof story.audio === 'string') {
     addShared(story.audio);
   } else if (Array.isArray(story.audio)) {

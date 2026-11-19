@@ -143,6 +143,10 @@ export function rewriteStoryForPack(story: Story, pack: DivePack): Story {
     }
   }
 
+  next.settingsLinks = next.settingsLinks?.map(link => ({
+    ...link, href: rewriteMaybeLocalized(pack, link.href) as typeof link.href,
+  }));
+
   return next;
 }
 

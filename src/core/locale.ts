@@ -12,6 +12,10 @@ const PLAYER_COPY: Record<string, Record<PlayerTextKey, string>> = {
     fullscreen: 'Toggle Fullscreen', captions: 'Captions', audioDescription: 'Audio description',
     data: 'Data', dataView: 'Current data view for exploration', dataLoading: 'Data loading or external',
     progress: 'Video progress',
+    volume: 'Volume',
+    playerHelp: 'Pause the video to explore.',
+    playerLayout: 'Player layout', defaultLayout: 'Default', autohideLayout: 'Autohide', insetLayout: 'Inset',
+    captionLocation: 'Caption location', captionsOverlaid: 'Overlaid', captionsBelow: 'Below',
   },
   cy: {
     loadingStory: 'Llwytho’r Stori...', loadingScene: 'Llwytho golygfa', end: 'Diwedd', replay: 'Chwarae eto',
@@ -21,6 +25,10 @@ const PLAYER_COPY: Record<string, Record<PlayerTextKey, string>> = {
     fullscreen: 'Newid sgrin lawn', captions: 'Isdeitlau', audioDescription: 'Disgrifiad sain',
     data: 'Data', dataView: 'Golwg data cyfredol i’w archwilio', dataLoading: 'Data yn llwytho neu’n allanol',
     progress: 'Cynnydd y fideo',
+    volume: 'Lefel sain',
+    playerHelp: 'Oedwch y fideo i archwilio.',
+    playerLayout: 'Cynllun y chwaraewr', defaultLayout: 'Diofyn', autohideLayout: 'Cuddio’n awtomatig', insetLayout: 'Mewnosod',
+    captionLocation: 'Lleoliad isdeitlau', captionsOverlaid: 'Dros y fideo', captionsBelow: 'O dan y fideo',
   },
 };
 
@@ -28,7 +36,9 @@ export type PlayerTextKey =
   | 'loadingStory' | 'loadingScene' | 'end' | 'replay' | 'sceneError' | 'retry'
   | 'chapters' | 'language' | 'settings' | 'play' | 'pause' | 'mute' | 'unmute'
   | 'hideCaptions' | 'showCaptions' | 'fullscreen' | 'captions' | 'audioDescription'
-  | 'data' | 'dataView' | 'dataLoading' | 'progress';
+  | 'data' | 'dataView' | 'dataLoading' | 'progress' | 'volume' | 'playerHelp'
+  | 'playerLayout' | 'defaultLayout' | 'autohideLayout' | 'insetLayout'
+  | 'captionLocation' | 'captionsOverlaid' | 'captionsBelow';
 
 function textFor(source: PlayerText | undefined, lang: string): Record<string, string> {
   if (!source) return {};

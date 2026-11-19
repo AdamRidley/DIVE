@@ -50,6 +50,14 @@
         { "$ref": "#/$defs/captionTrack" }
       ]
     },
+    "showUiModeSetting": {
+      "type": "boolean",
+      "description": "Show the viewer layout selector in Settings; defaults to true"
+    },
+    "showCaptionLocationSetting": {
+      "type": "boolean",
+      "description": "Show the viewer caption location selector in Settings; defaults to true"
+    },
     "languages": {
       "description": "Supported languages",
       "type": "array",
@@ -74,7 +82,7 @@
       "enum": ["autohide", "inset"]
     },
     "languageToggle": {
-      "description": "Language picker placement: auto (inline for exactly two languages, menu otherwise), inline, menu (settings cog), none",
+      "description": "Language picker placement: auto (inline for exactly two languages, menu otherwise), inline, menu (header dropdown), none",
       "type": "string",
       "enum": ["auto", "inline", "menu", "none"]
     },
@@ -88,6 +96,23 @@
       "additionalProperties": {
         "type": "object",
         "additionalProperties": { "type": "string" }
+      }
+    },
+    "settingsLinks": {
+      "description": "Localized settings links. Relative resources are included in story packs; only HTTP(S), blob or relative URLs are supported.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": { "$ref": "#/$defs/localizedString" },
+          "href": { "$ref": "#/$defs/localizedString" },
+          "download": {
+            "anyOf": [{ "type": "boolean" }, { "$ref": "#/$defs/localizedString" }]
+          },
+          "newTab": { "type": "boolean" }
+        },
+        "required": ["label", "href"],
+        "additionalProperties": false
       }
     },
     "assets": {
@@ -191,6 +216,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
+        "label": { "$ref": "#/$defs/localizedString", "description": "Viewer-facing chapter name; falls back to id when omitted" },
         "tool": { "type": "string" },
         "startTime": { "type": "number", "minimum": 0 },
         "endTime": { "type": "number", "minimum": 0 },
