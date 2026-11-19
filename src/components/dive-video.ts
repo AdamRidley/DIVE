@@ -55,7 +55,7 @@ export class DiveVideo extends LitElement {
   @property({ type: String }) src = ''; // URL to the story JSON
   @property({ type: String, attribute: 'ui-mode' }) uiMode = '';
   @property({ type: String, attribute: 'language-toggle' }) languageToggle = '';
-  @property({ type: Boolean, attribute: 'captions-below', reflect: true }) captionsBelow = false;
+  @property({ type: Boolean, attribute: 'captions-below' }) captionsBelow = false;
 
   @state() private story: Story | null = null;
   @state() private isPlaying = false;
@@ -64,7 +64,7 @@ export class DiveVideo extends LitElement {
   @state() private activeToolId: string | null = null;
   @state() private isFullscreen = false;
   @state() private isUIHidden = false;
-  @property({ type: Boolean, attribute: 'muted', reflect: true }) isMuted = false;
+  @property({ type: Boolean, attribute: 'muted' }) isMuted = false;
   @state() private captionsEnabled = false;
   @state() private descriptionsEnabled = false;
   @state() private activeCues: CaptionCue[] = [];
@@ -106,6 +106,9 @@ export class DiveVideo extends LitElement {
   private sizeTargets = new Set<Element>();
   private autoHeightFrame = 0;
   private themeSheet: CSSStyleSheet | null = null;
+  private sizingSheet: CSSStyleSheet | null = null;
+  private autoHeight = '';
+  private hostInternals = this.attachInternals();
   private stopThemeListener: (() => void) | null = null;
 
   static styles = css`
@@ -114,7 +117,7 @@ export class DiveVideo extends LitElement {
       position: relative;
       width: 100%;
       max-width: 100%;
-      height: min(var(--dive-auto-height, 100dvh), 100dvh);
+      height: 100dvh;
       background: #000;
       overflow: hidden;
       font-family: var(--dive-font, sans-serif);
@@ -129,12 +132,12 @@ export class DiveVideo extends LitElement {
       height: 100%;
       aspect-ratio: auto;
     }
-    :host([active-ui-mode="inset"]) {
+    :host(:state(inset)) {
       display: grid;
       grid-template-rows: auto minmax(0, 1fr) auto;
       background: var(--dive-chrome-bg, #111214);
     }
-    :host([active-ui-mode="inset"]:fullscreen) {
+    :host(:state(inset):fullscreen) {
       grid-template-rows: 52px minmax(0, 1fr) 64px;
     }
     .video-section {
@@ -146,7 +149,7 @@ export class DiveVideo extends LitElement {
       container-type: size;
       container-name: stage;
     }
-    :host([active-ui-mode="inset"]) .video-section {
+    :host(:state(inset)) .video-section {
       grid-row: 2;
       position: relative;
       inset: auto;
@@ -155,7 +158,7 @@ export class DiveVideo extends LitElement {
       width: 100%;
       height: 100%;
     }
-    :host([captions-below]) .video-section {
+    :host(:state(captions-below)) .video-section {
       grid-template-rows: minmax(0, 1fr) auto;
     }
     .picture-area {
@@ -388,7 +391,7 @@ export class DiveVideo extends LitElement {
     .chrome-top {
       display: contents;
     }
-    :host([active-ui-mode="inset"]) .chrome-top {
+    :host(:state(inset)) .chrome-top {
       grid-row: 1;
       display: flex;
       align-items: center;
@@ -400,7 +403,7 @@ export class DiveVideo extends LitElement {
     .chrome-top-right {
       display: contents;
     }
-    :host([active-ui-mode="inset"]) .chrome-top-right {
+    :host(:state(inset)) .chrome-top-right {
       display: flex;
       align-items: center;
       gap: 8px;
@@ -439,7 +442,7 @@ export class DiveVideo extends LitElement {
       opacity: 0;
       pointer-events: none;
     }
-    :host([active-ui-mode="inset"]) .lang-toggle {
+    :host(:state(inset)) .lang-toggle {
       position: relative;
       top: auto;
       right: auto;
@@ -479,7 +482,7 @@ export class DiveVideo extends LitElement {
     .language-code {
       display: var(--dive-language-code-display, inline);
     }
-    :host([active-ui-mode="inset"]) .controls {
+    :host(:state(inset)) .controls {
       grid-row: 3;
       position: relative;
       bottom: auto;
@@ -491,19 +494,19 @@ export class DiveVideo extends LitElement {
       opacity: 1;
       pointer-events: auto;
     }
-    :host([active-ui-mode="inset"]) .corner-btn,
-    :host([active-ui-mode="inset"]) button.icon-btn.corner-btn {
+    :host(:state(inset)) .corner-btn,
+    :host(:state(inset)) button.icon-btn.corner-btn {
       position: relative;
       top: auto;
       left: auto;
       right: auto;
       background: rgba(255, 255, 255, 0.08);
     }
-    :host([active-ui-mode="inset"]) .drawer.chapters {
+    :host(:state(inset)) .drawer.chapters {
       left: 8px;
       top: 50px;
     }
-    :host([active-ui-mode="inset"]) .drawer.settings {
+    :host(:state(inset)) .drawer.settings {
       right: 8px;
       top: 50px;
     }
@@ -705,7 +708,6 @@ export class DiveVideo extends LitElement {
     if (!this.hasAttribute('tabindex')) {
       this.tabIndex = 0;
     }
-    this.applyAspectRatio();
   }
 
   protected async firstUpdated() {
@@ -732,12 +734,8 @@ export class DiveVideo extends LitElement {
         detail: { lang: this.playerLang }, bubbles: true, composed: true,
       }));
     }
-    // Reflect the resolved mode for styling only. Writing it to ui-mode would turn it into a
-    // host override that pins every later scene to the first resolved mode.
-    const mode = this.activeUiMode();
-    if (this.getAttribute('active-ui-mode') !== mode) {
-      this.setAttribute('active-ui-mode', mode);
-    }
+    this.setHostState('inset', this.activeUiMode() === 'inset');
+    this.setHostState('captions-below', this.captionsBelow);
     this.observeStage();
     this.observeSize();
     if (changedProperties.has('playerLang')) this.updateFrameTitles();
@@ -908,6 +906,11 @@ export class DiveVideo extends LitElement {
     this.applyAutoHeight();
   }
 
+  private setHostState(name: string, enabled: boolean) {
+    if (enabled) this.hostInternals.states.add(name);
+    else this.hostInternals.states.delete(name);
+  }
+
   private applyAutoHeight() {
     const style = getComputedStyle(this);
     const paddingWidth = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
@@ -926,8 +929,13 @@ export class DiveVideo extends LitElement {
         + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
     }
     const value = `${height}px`;
-    if (this.style.getPropertyValue('--dive-auto-height') !== value) {
-      this.style.setProperty('--dive-auto-height', value);
+    if (this.autoHeight !== value) {
+      if (!this.sizingSheet) {
+        this.sizingSheet = new CSSStyleSheet();
+        this.shadowRoot!.adoptedStyleSheets = [...this.shadowRoot!.adoptedStyleSheets, this.sizingSheet];
+      }
+      this.sizingSheet.replaceSync(`:host { height: min(${value}, 100dvh); } :host(:fullscreen) { height: 100%; }`);
+      this.autoHeight = value;
     }
     this.applyStageScale();
   }
@@ -977,7 +985,6 @@ export class DiveVideo extends LitElement {
         }
       }
 
-      this.applyAspectRatio(this.story?.aspectRatio);
       this.observeStage();
       this.playerLang = resolvePlayerLanguage(this.storyLanguages(), urlState.lang, playerDefaults().language);
       this.allAudioSpecs = this.story ? collectStoryAudio(this.story, this.storyBaseUrl) : [];
@@ -1280,13 +1287,6 @@ export class DiveVideo extends LitElement {
       this.activeAdapter.setPlaybackState(this.isPlaying && this.sceneReady, this.currentTime);
     }
     this.syncMedia(this.currentTime);
-  }
-
-  private applyAspectRatio(value?: string) {
-    const aspect = parseAspectRatio(value);
-    this.style.setProperty('--aspect-ratio', aspectCss(aspect));
-    this.style.setProperty('--ar-w', String(aspect.width));
-    this.style.setProperty('--ar-h', String(aspect.height));
   }
 
   private syncMedia(timeMs: number) {

@@ -70,7 +70,15 @@ Controls remain visible while keyboard-focused, and drawers support keyboard
 focus entry and restoration. Relative story URLs respect the page's
 `<base>` element.
 
-Use `<dive-video src="./story.json" muted></dive-video>` to start with sound off; the speaker control enables it on demand. The reflected `isMuted` property also supports programmatic changes. Player controls have built-in English and Welsh text; other languages (or rewording) come from `playerText` (see below). `dive-language-change` emits `{ lang }` in its event detail when the active language changes.
+Use `<dive-video src="./story.json" muted></dive-video>` to start with sound off; the speaker control enables it on demand. The `isMuted` property also supports programmatic changes without reflecting runtime mute state into the host attribute. Player controls have built-in English and Welsh text; other languages (or rewording) come from `playerText` (see below). `dive-language-change` emits `{ lang }` in its event detail when the active language changes.
+
+Host attributes and inline CSS are author inputs, not storage for calculated state.
+Changing `ui-mode`, `language-toggle`, `captions-below`, or CSS sizing remains effective
+through playback. An explicit `ui-mode` overrides scene/story defaults; removing it
+restores scene > story > configured defaults. Resolved layout is internal, exposed
+only for CSS through `dive-video:state(inset)` (replacing the generated
+`active-ui-mode` attribute) and `dive-video:state(captions-below)`.
+Automatic height lives in the shadow stylesheet rather than generated host styles.
 
 ### Interaction, languages, and theming
 

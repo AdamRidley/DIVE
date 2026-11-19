@@ -261,7 +261,7 @@ try {
         const sizes = await player.evaluate(element => {
           const root = element.shadowRoot;
           const video = root.querySelector('.video-ratio-wrapper').getBoundingClientRect();
-          const chrome = element.getAttribute('active-ui-mode') === 'inset'
+          const chrome = element.matches(':state(inset)')
             ? [...root.querySelectorAll('.chrome-top, .controls')].reduce((sum, item) => sum + item.getBoundingClientRect().height, 0) : 0;
           const captions = root.querySelector('.captions.below')?.getBoundingClientRect().height || 0;
           return { host: element.getBoundingClientRect().height, width: video.width, video: video.height, chrome, captions };
@@ -292,6 +292,49 @@ try {
     });
     await page.setViewportSize({ width: 1280, height: 900 });
   }
+  await player.evaluate(element => {
+    element.removeAttribute('ui-mode');
+    element.story = { ...element.story, uiMode: 'autohide' };
+    element.story.scenes[0].uiMode = 'inset';
+  });
+  await page.waitForFunction(() => document.querySelector('dive-video').matches(':state(inset)'));
+  await player.evaluate(element => element.setAttribute('ui-mode', 'autohide'));
+  await page.waitForFunction(() => !document.querySelector('dive-video').matches(':state(inset)'));
+  await player.evaluate(element => {
+    element.setAttribute('language-toggle', 'menu');
+    element.removeAttribute('captions-below');
+    element.style.height = '480px';
+  });
+  const hostInputs = await player.evaluate(element => ({
+    style: element.getAttribute('style'),
+    mode: element.getAttribute('ui-mode'),
+    language: element.getAttribute('language-toggle'),
+    captions: element.hasAttribute('captions-below'),
+  }));
+  await play.click();
+  await page.waitForFunction(() => document.querySelector('dive-video').isPlaying);
+  await page.waitForTimeout(100);
+  await play.click();
+  assert.deepEqual(await player.evaluate(element => ({
+    style: element.getAttribute('style'),
+    mode: element.getAttribute('ui-mode'),
+    language: element.getAttribute('language-toggle'),
+    captions: element.hasAttribute('captions-below'),
+  })), hostInputs, 'Playback must not rewrite author attributes or inline CSS');
+  assert.equal(await player.getAttribute('active-ui-mode'), null, 'Resolved mode must not be stored in a host attribute');
+  await player.evaluate(element => {
+    element.removeAttribute('ui-mode');
+    element.captionsBelow = true;
+    element.isMuted = true;
+  });
+  await page.waitForFunction(() => {
+    const element = document.querySelector('dive-video');
+    return element.matches(':state(inset)') && element.matches(':state(captions-below)');
+  });
+  assert.equal(await player.getAttribute('captions-below'), null, 'JS caption configuration must not write an attribute');
+  assert.equal(await player.getAttribute('muted'), null, 'Mute state must not write author configuration');
+  assert.equal(await player.evaluate(element => element.getBoundingClientRect().height), 480,
+    'Explicit author height must survive playback and mode changes');
   assert.deepEqual([...errors], [], 'Control interactions must not throw browser errors');
   console.log('Player controls: styles, languages, seeking, automatic aspect sizing, viewport caps and CSS overrides passed.');
 } finally {
