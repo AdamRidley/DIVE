@@ -73,6 +73,10 @@ focus entry and restoration. Relative story URLs respect the page's
 Use `<dive-video src="./story.json" muted></dive-video>` to start with sound off; the speaker control enables it on demand. The `isMuted` property also supports programmatic changes without reflecting runtime mute state into the host attribute. Player controls have built-in English and Welsh text; other languages (or rewording) come from `playerText` (see below). `dive-language-change` emits `{ lang }` in its event detail when the active language changes.
 
 Host attributes and inline CSS are author inputs, not storage for calculated state.
+During playback in autohide mode, controls hide immediately when the mouse leaves
+the player and reappear on entry. The existing inactivity timer still applies while
+hovering. Paused playback, open drawers and keyboard focus keep controls visible;
+touch interaction retains its existing timeout.
 Changing `ui-mode`, `language-toggle`, `captions-below`, or CSS sizing remains effective
 through playback. An explicit `ui-mode` overrides scene/story defaults; removing it
 restores scene > story > configured defaults. Resolved layout is internal, exposed

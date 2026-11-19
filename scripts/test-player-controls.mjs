@@ -222,6 +222,40 @@ try {
     rule.style.removeProperty('height');
   });
   const player = page.locator('dive-video');
+  await player.evaluate(element => element.setAttribute('ui-mode', 'autohide'));
+  await play.click();
+  await page.waitForFunction(() => document.querySelector('dive-video').isPlaying);
+  await page.mouse.move(100, 100);
+  await page.mouse.move(100, 850);
+  await page.waitForFunction(() => document.querySelector('dive-video').isUIHidden, null, { timeout: 1000 });
+  await page.mouse.move(100, 100);
+  await page.waitForFunction(() => !document.querySelector('dive-video').isUIHidden);
+  await player.dispatchEvent('pointerleave', { pointerType: 'touch' });
+  assert.equal(await player.evaluate(element => element.isUIHidden), false,
+    'Touch release must not hide controls immediately');
+  for (const drawer of ['settings', 'chapters']) {
+    await player.locator(`[aria-controls="${drawer}-drawer"]`).click();
+    await page.mouse.move(100, 850);
+    assert.equal(await player.evaluate(element => element.isUIHidden), false,
+      'Leaving an open drawer must keep controls visible');
+    await player.locator(`[aria-controls="${drawer}-drawer"]`).click();
+  }
+  await play.focus();
+  await page.keyboard.press('Tab');
+  await page.mouse.move(100, 100);
+  await page.mouse.move(100, 850);
+  assert.equal(await player.evaluate(element => element.isUIHidden), false,
+    'Mouse leave must preserve keyboard-focused controls');
+  await play.click();
+  await page.mouse.move(100, 850);
+  assert.equal(await player.evaluate(element => element.isUIHidden), false,
+    'Paused controls must remain visible after mouse leave');
+  await player.evaluate(element => element.setAttribute('ui-mode', 'inset'));
+  await play.click();
+  await page.mouse.move(100, 850);
+  assert.equal(await player.evaluate(element => element.isUIHidden), false,
+    'Inset controls must remain visible after mouse leave');
+  await play.click();
   assert.equal(await player.locator('#canvas-container').evaluate(element =>
     getComputedStyle(element).transitionProperty), 'opacity',
   'Content scaling must fit instantly; only scene opacity may transition');

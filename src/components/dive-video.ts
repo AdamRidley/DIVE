@@ -700,6 +700,8 @@ export class DiveVideo extends LitElement {
     document.addEventListener('fullscreenchange', this.handleFullscreenChange);
     this.addEventListener('pointermove', this.resetUIHideTimer);
     this.addEventListener('pointerdown', this.resetUIHideTimer);
+    this.addEventListener('pointerenter', this.resetUIHideTimer);
+    this.addEventListener('pointerleave', this.handlePointerLeave);
     this.addEventListener('keydown', this.handleKeydown);
     this.addEventListener('focusin', this.resetUIHideTimer);
     this.addEventListener('focusout', this.handleFocusOut);
@@ -759,6 +761,8 @@ export class DiveVideo extends LitElement {
     document.removeEventListener('fullscreenchange', this.handleFullscreenChange);
     this.removeEventListener('pointermove', this.resetUIHideTimer);
     this.removeEventListener('pointerdown', this.resetUIHideTimer);
+    this.removeEventListener('pointerenter', this.resetUIHideTimer);
+    this.removeEventListener('pointerleave', this.handlePointerLeave);
     this.removeEventListener('keydown', this.handleKeydown);
     this.removeEventListener('focusin', this.resetUIHideTimer);
     this.removeEventListener('focusout', this.handleFocusOut);
@@ -832,17 +836,26 @@ export class DiveVideo extends LitElement {
     return resolvePauseOnInteract(this.story, scene, this.activeNarrativeState?.visualState);
   }
 
-  private resetUIHideTimer = () => {
+  private canHideUI() {
     const keyboardFocus = this.matches(':focus-visible') || !!this.shadowRoot?.querySelector(':focus-visible');
-    const keepChrome = this.activeUiMode() === 'inset' || !this.isPlaying || this.settingsOpen || this.chaptersOpen || this.ended || !this.sceneReady || keyboardFocus;
+    return this.activeUiMode() === 'autohide' && this.isPlaying && !this.settingsOpen && !this.chaptersOpen && !this.ended && this.sceneReady && !keyboardFocus;
+  }
+
+  private handlePointerLeave = (event: PointerEvent) => {
+    if (event.pointerType === 'touch' || !this.canHideUI()) return;
+    if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
+    this.isUIHidden = true;
+  };
+
+  private resetUIHideTimer = () => {
     this.isUIHidden = false;
     if (this.hideUIHandle) window.clearTimeout(this.hideUIHandle);
-    if (keepChrome) {
+    if (!this.canHideUI()) {
       return;
     }
     const delay = window.matchMedia('(hover: none)').matches ? 4000 : 2500;
     this.hideUIHandle = window.setTimeout(() => {
-      this.isUIHidden = true;
+      this.isUIHidden = this.canHideUI();
     }, delay);
   }
 
