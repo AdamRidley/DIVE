@@ -1929,8 +1929,6 @@ export class DiveVideo extends LitElement {
     }
     this.urlSyncHandle = window.setTimeout(() => {
       writeDiveUrlState({
-        timeMs: this.currentTime,
-        sceneId: this.activeToolId || undefined,
         lang: this.playerLang,
       });
     }, 250);

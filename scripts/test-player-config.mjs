@@ -8,6 +8,34 @@ import {
 } from '../src/core/config.ts';
 import { playerCopy, resolvePlayerLanguage } from '../src/core/locale.ts';
 import { resolveUiMode } from '../src/core/ui-mode.ts';
+import { readDiveUrlState, writeDiveUrlState } from '../src/core/url-state.ts';
+
+const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
+const originalHistory = Object.getOwnPropertyDescriptor(globalThis, 'history');
+let replacement;
+Object.defineProperty(globalThis, 'location', { configurable: true, value: { href: 'https://example.org/publication?keep=yes' } });
+Object.defineProperty(globalThis, 'history', {
+  configurable: true,
+  value: { state: null, replaceState: (_state, _title, url) => { replacement = url.href; } },
+});
+try {
+  writeDiveUrlState({ timeMs: 12000, sceneId: 'second', lang: 'cy' });
+  assert.equal(replacement, 'https://example.org/publication?keep=yes&lang=cy');
+  globalThis.location.href = 'https://example.org/publication?t=5&scene=intro&lang=cy#details';
+  writeDiveUrlState({ timeMs: 12000, sceneId: 'second', lang: 'en' });
+  assert.equal(replacement, 'https://example.org/publication?t=5&scene=intro&lang=en#details');
+  replacement = undefined;
+  writeDiveUrlState({ lang: 'cy' });
+  assert.equal(replacement, undefined, 'Playback must not rewrite an unchanged URL');
+  assert.deepEqual(readDiveUrlState('?t=5&scene=intro&lang=cy', ''), {
+    timeMs: 5000, sceneId: 'intro', lang: 'cy',
+  });
+} finally {
+  if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
+  else delete globalThis.location;
+  if (originalHistory) Object.defineProperty(globalThis, 'history', originalHistory);
+  else delete globalThis.history;
+}
 
 const scene = (pauseOnInteract) => ({ id: 's', tool: 't', startTime: 0, endTime: 1, keyframes: [], overlays: [], pauseOnInteract });
 const story = (extra = {}) => ({ title: 'x', duration: 1, scenes: [], ...extra });

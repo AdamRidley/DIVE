@@ -95,6 +95,10 @@ override is supplied; set it to `false` to override a story's below placement or
 sets the property to `false`. Story `"languageToggle": "menu"` likewise removes
 the need for a host `language-toggle="menu"` attribute.
 
+Playback and seeking do not write time or scene parameters into the host page's
+URL. Incoming `t` / `scene` deep links are still read and preserved; language
+selection may update `lang` without changing unrelated query parameters.
+
 Use `<dive-video src="./story.json" muted></dive-video>` to start with sound off; the speaker control enables it on demand. The `isMuted` property also supports programmatic changes without reflecting runtime mute state into the host attribute. Player controls have built-in English and Welsh text; other languages (or rewording) come from `playerText` (see below). `dive-language-change` emits `{ lang }` in its event detail when the active language changes.
 
 Host attributes and inline CSS are author inputs, not storage for calculated state.
