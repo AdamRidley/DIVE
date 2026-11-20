@@ -32,3 +32,5 @@ export { parseVtt, cuesAtTime, captionTracksForLocale } from './core/captions';
 export { collectStoryAudio, filterAudioClips } from './core/audio';
 export { resolveLocalized, resolvePlayerLanguage, DEFAULT_LANGUAGE } from './core/locale';
 export { readDiveUrlState, writeDiveUrlState } from './core/url-state';
+export { resolveTimeline, timelineAt } from './core/timeline';
+export type { TimelineAct, TimelineItem, TimelineModel } from './core/timeline';

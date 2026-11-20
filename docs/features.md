@@ -27,6 +27,7 @@ Status: **proposed** unless marked done. Sign off a round by ID (e.g. “do F3, 
 | F19 | CSS parts: `canvas`, `poster`, `overlays`, `overlay`, `captions`, `controls`, `scrubber`, `buffer`, `chapters`, `settings`, `lang-toggle`, `end-screen` |
 | F24 | `pauseOnInteract` at story, scene, and keyframe level |
 | F25 | Theme via `--dive-*` custom properties; `configure()` page-wide defaults |
+| F27 | `nestedTimeline` two-level track: the coarser of scenes/sections becomes acts, the finer becomes sub-items with faint dividers and act-then-child tooltips. Flat track unchanged when omitted |
 
 ## Proposed later
 

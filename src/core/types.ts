@@ -12,6 +12,12 @@ export interface Story {
   languages?: LanguageOption[];
   poster?: string;
   /**
+   * Build a two-level timeline. Acts come from whichever list is coarser, so scenes tiled
+   * inside authored sections and sections tiled inside scenes both work without restructuring
+   * the story. Flat by default, which renders `timelineSections` exactly as before.
+   */
+  nestedTimeline?: boolean;
+  /**
    * Player chrome. `autohide` overlays the picture and captures the first tap.
    * `inset` keeps chrome outside the picture so the tool is always clickable.
    * A scene `uiMode` overrides this.

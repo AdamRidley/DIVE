@@ -54,6 +54,10 @@
       "type": "boolean",
       "description": "Place captions below the picture by default; element property/attribute and viewer selection override it"
     },
+    "nestedTimeline": {
+      "type": "boolean",
+      "description": "Build a two-level timeline where the coarser of scenes/timelineSections becomes acts and the finer becomes sub-items; flat by default"
+    },
     "showUiModeSetting": {
       "type": "boolean",
       "description": "Show the viewer layout selector in Settings; defaults to true"

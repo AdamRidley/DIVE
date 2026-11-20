@@ -1033,6 +1033,69 @@ try {
     }
   });
   await page.goto(`${server.resolvedUrls.local[0]}__controls-test`);
+  // Nested timeline: the coarser level becomes acts, the finer level becomes sub-items.
+  await page.route('**/__nested-test', route => route.fulfill({
+    contentType: 'text/html',
+    body: `<!doctype html><style>dive-video{width:640px}</style>
+      <dive-video src="/__nested-story.json"></dive-video>
+      <script type="module" src="/src/index.ts"></script>`,
+  }));
+  await page.route('**/__nested-story.json', route => route.fulfill({ json: {
+    title: 'Nested fixture', duration: 60000, aspectRatio: '16:9', nestedTimeline: true,
+    timelineSections: [
+      { startTime: 0, endTime: 20000, label: 'Origins' },
+      { startTime: 20000, endTime: 35000, label: 'Shock Era' },
+      { startTime: 35000, endTime: 45000, label: 'Modern Rise' },
+      { startTime: 45000, endTime: 60000, label: 'Baseline' },
+    ],
+    scenes: [
+      { id: 'act-one', label: 'Act one', tool: '/__controls-tool.html', startTime: 0, endTime: 45000,
+        keyframes: [{ time: 0, state: {} }], overlays: [] },
+      { id: 'act-two', label: 'Act two', tool: '/__controls-tool.html', startTime: 45000, endTime: 60000,
+        keyframes: [{ time: 0, state: {} }], overlays: [] },
+    ],
+  } }));
+  await page.goto(`${server.resolvedUrls.local[0]}__nested-test`);
+  const nestedPlayer = page.locator('dive-video');
+  await page.waitForFunction(() => document.querySelector('dive-video')?.shadowRoot?.querySelectorAll('.section-band').length === 2);
+  assert.deepEqual((await nestedPlayer.locator('.section-band').allTextContents()).map(text => text.trim()),
+    ['Act one', 'Act two'], 'Scenes become the acts while the sections become sub-items');
+  assert.equal(await nestedPlayer.locator('.section-divider').count(), 2,
+    'Sub-items draw dividers, except where one starts the act');
+  assert.equal(await nestedPlayer.locator('.chapter-marker').count(), 2, 'Markers follow acts, not sub-items');
+  const nestedBox = await nestedPlayer.locator('.scrubber').boundingBox();
+  await page.mouse.move(nestedBox.x + nestedBox.width * 0.1, nestedBox.y + nestedBox.height / 2);
+  await page.waitForFunction(() => !!document.querySelector('dive-video').shadowRoot.querySelector('.timeline-tooltip'));
+  assert.equal(await nestedPlayer.locator('.timeline-tooltip-heading').textContent(), 'Act one',
+    'Nested tooltips lead with the act');
+  assert.equal(await nestedPlayer.locator('.timeline-tooltip-subheading').textContent(), 'Origins',
+    'Nested tooltips name the sub-item');
+  await page.mouse.move(nestedBox.x + nestedBox.width * 0.8, nestedBox.y + nestedBox.height / 2);
+  await page.waitForFunction(() => document.querySelector('dive-video').shadowRoot
+    .querySelector('.timeline-tooltip-subheading')?.textContent === 'Baseline');
+  assert.equal(await nestedPlayer.locator('.timeline-tooltip-heading').textContent(), 'Act two');
+
+  // The same story without the flag keeps the flat track.
+  await page.route('**/__nested-story.json', route => route.fulfill({ json: {
+    title: 'Flat fixture', duration: 60000, aspectRatio: '16:9',
+    timelineSections: [
+      { startTime: 0, endTime: 20000, label: 'Origins' },
+      { startTime: 20000, endTime: 35000, label: 'Shock Era' },
+      { startTime: 35000, endTime: 45000, label: 'Modern Rise' },
+      { startTime: 45000, endTime: 60000, label: 'Baseline' },
+    ],
+    scenes: [
+      { id: 'act-one', label: 'Act one', tool: '/__controls-tool.html', startTime: 0, endTime: 45000,
+        keyframes: [{ time: 0, state: {} }], overlays: [] },
+      { id: 'act-two', label: 'Act two', tool: '/__controls-tool.html', startTime: 45000, endTime: 60000,
+        keyframes: [{ time: 0, state: {} }], overlays: [] },
+    ],
+  } }));
+  await page.goto(`${server.resolvedUrls.local[0]}__nested-test`);
+  await page.waitForFunction(() => document.querySelector('dive-video')?.shadowRoot?.querySelectorAll('.section-band').length === 4);
+  assert.equal(await page.locator('dive-video .section-divider').count(), 0,
+    'Without the flag the flat section track is unchanged');
+  await page.goto(`${server.resolvedUrls.local[0]}__controls-test`);
   await page.waitForFunction(() => window.diveLoadEvents.length > 0);
   assert.deepEqual(await page.evaluate(() => window.diveLoadEvents), [
     { type: 'dive-story-ready', src: `${server.resolvedUrls.local[0]}__controls-story.json`, phase: undefined },

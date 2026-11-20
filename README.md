@@ -101,6 +101,14 @@ Controls remain visible while keyboard-focused, and drawers support keyboard
 focus entry and restoration. Relative story URLs respect the page's
 `<base>` element.
 
+Set story `"nestedTimeline": true` for a two-level track. The coarser of `scenes`
+and `timelineSections` becomes the acts and the finer becomes sub-items, so a story
+whose sections tile inside its scenes reads as chapters with internal parts, and a
+story whose scenes tile inside its sections reads the same way. Acts take the labels
+and the large markers, sub-items draw faint `--dive-section-divider` ticks with no
+labels, and the hover tooltip leads with the act and then the sub-item. Omit the flag
+and the flat track is rendered exactly as before.
+
 Caption placement resolves viewer choice > element `captionsBelow` property >
 story `captionsBelow` > overlaid. The element property is `undefined` when no
 override is supplied; set it to `false` to override a story's below placement or

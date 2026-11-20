@@ -1,7 +1,7 @@
 import { LitElement, html, svg, css, nothing, type PropertyValues } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { Sequencer } from '../core/Sequencer';
-import { Story, NarrativeState, TimelineSection, Overlay, OverlayAnchor, OverlayAnchorPlacement, OverlayCanonicalAnchor, OverlayPlacementUnit, CaptionCue, LanguageOption } from '../core/types';
+import { Story, NarrativeState, Overlay, OverlayAnchor, OverlayAnchorPlacement, OverlayCanonicalAnchor, OverlayPlacementUnit, CaptionCue, LanguageOption } from '../core/types';
 import { IAdapter } from '../core/Adapter';
 import { D3ScatterplotAdapter } from '../adapters/D3ScatterplotAdapter';
 import { D3MapAdapter } from '../adapters/D3MapAdapter';
@@ -14,6 +14,7 @@ import { captionTracksForLocale, cuesAtTime, resolveCaptionTracks, ResolvedCapti
 import { filesForScene, loadDivePack, looksLikeDiveUrl, openDivePack, shouldLoadAsDive, DivePackSession } from '../core/dive-pack';
 import { listedLanguages, playerCopy, resolveLocalized, resolvePlayerLanguage, storeLanguage } from '../core/locale';
 import { readDiveUrlState, writeDiveUrlState } from '../core/url-state';
+import { resolveTimeline, timelineAt, type TimelineModel } from '../core/timeline';
 import { parseUiMode, resolveUiMode } from '../core/ui-mode';
 import { configurePlayer, onThemeChange, playerDefaults, PlayerDefaults, resolveLanguageToggle, resolvePauseOnInteract, themeCss } from '../core/config';
 
@@ -814,6 +815,16 @@ export class DiveVideo extends LitElement {
     }
     .section-band.first { border-radius: 10px 0 0 10px; }
     .section-band.last { border-radius: 0 10px 10px 0; }
+    .section-divider {
+      position: absolute;
+      top: 0;
+      height: 100%;
+      width: var(--dive-section-divider-width, 1px);
+      background: var(--dive-section-divider, rgba(255, 255, 255, 0.22));
+      transform: translateX(-50%);
+      pointer-events: none;
+      z-index: 2;
+    }
     .section-label {
       position: relative;
       z-index: 3;
@@ -1768,23 +1779,11 @@ export class DiveVideo extends LitElement {
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
 
-  private getTimelineSections(): TimelineSection[] {
+  private getTimeline(): TimelineModel {
     if (!this.story) {
-      return [];
+      return { acts: [], nested: false };
     }
-
-    if (Array.isArray(this.story.timelineSections) && this.story.timelineSections.length > 0) {
-      return [...this.story.timelineSections]
-        .filter((section) => Number.isFinite(section.startTime) && Number.isFinite(section.endTime) && section.endTime > section.startTime)
-        .sort((a, b) => a.startTime - b.startTime);
-    }
-
-    return this.story.scenes.map((scene) => ({
-      id: scene.id,
-      label: scene.label || scene.id,
-      startTime: scene.startTime,
-      endTime: scene.endTime,
-    }));
+    return resolveTimeline(this.story.scenes, this.story.timelineSections || [], !!this.story.nestedTimeline);
   }
 
   private storyLanguages(): LanguageOption[] | undefined {
@@ -2306,14 +2305,24 @@ export class DiveVideo extends LitElement {
 
     const duration = this.story.duration;
     const percent = Math.min(100, Math.max(0, (this.currentTime / duration) * 100));
-    const timelineSections = this.getTimelineSections();
+    const timeline = this.getTimeline();
+    const timelineSections = timeline.acts;
     const hoverTime = this.timelineHover?.time;
+    const hoveredAct = hoverTime === undefined ? undefined : timelineAt(timeline, hoverTime);
     const hoveredSection = hoverTime === undefined ? undefined
       : timelineSections.find(section => hoverTime >= section.startTime
         && (hoverTime < section.endTime || hoverTime === duration && section.endTime === duration));
     const hoveredScene = hoverTime === undefined ? undefined
       : this.story.scenes.find(scene => hoverTime >= scene.startTime
         && (hoverTime < scene.endTime || hoverTime === duration && scene.endTime === duration));
+    // Nested timelines read act then child; the flat track keeps its section then scene order.
+    const tooltipHeading = timeline.nested ? hoveredAct?.act?.label : hoveredSection?.label;
+    const tooltipSubheading = timeline.nested
+      ? hoveredAct?.child?.label
+      : hoveredScene && (hoveredScene.label || hoveredScene.id);
+    const hasTooltip = timeline.nested
+      ? !!(tooltipHeading || tooltipSubheading)
+      : !!(hoveredSection || hoveredScene);
     const activeScene = this.story.scenes.find((scene) => scene.id === this.activeToolId);
     const activeSceneData = activeScene?.data;
     const visibleOverlays = (this.activeNarrativeState?.activeOverlays || []).filter((overlay) => {
@@ -2513,20 +2522,23 @@ export class DiveVideo extends LitElement {
 
             return html`
               <div
-                class="section-band ${index === 0 ? 'first' : index === timelineSections.length - 1 ? 'last' : ''}"
+                class="section-band ${index === 0 ? 'first' : ''} ${index === timelineSections.length - 1 ? 'last' : ''}"
                 style="left: ${startPercent}%; width: ${widthPercent}%; background: var(--dive-section-bg, ${color});"
               >
                 ${showLabel ? html`<span class="section-label">${resolveLocalized(section.label, this.playerLang)}</span>` : ''}
               </div>
             `;
           })}
+          ${timeline.nested ? timelineSections.flatMap(act => act.children
+            .filter(child => child.startTime > act.startTime)
+            .map(child => html`<div class="section-divider" style="left: ${(child.startTime / duration) * 100}%;"></div>`)) : ''}
           </div>
 
           <div class="progress" style="--progress: ${percent}%"></div>
           <div class="playhead" aria-hidden="true" style="left: clamp(0px, calc(${percent}% - 2px), calc(100% - 4px));"></div>
           
           <!-- Scene Markers -->
-          ${this.story.scenes.filter(s => !timelineSections.some(section => section.startTime === s.startTime)).map(s => {
+          ${timeline.nested ? '' : this.story.scenes.filter(s => !timelineSections.some(section => section.startTime === s.startTime)).map(s => {
             const pos = (s.startTime / duration) * 100;
             return html`<div class="scene-marker" style="left: ${pos}%"></div>`;
           })}
@@ -2537,10 +2549,10 @@ export class DiveVideo extends LitElement {
             return html`<div class="scene-marker chapter-marker ${active ? 'active' : ''} ${this.currentTime >= section.startTime ? 'visited' : ''}"
               style="left: ${pos}%;"></div>`;
           })}
-          ${this.timelineHover && (hoveredSection || hoveredScene) ? html`
+          ${this.timelineHover && hasTooltip ? html`
             <div class="timeline-tooltip" aria-hidden="true" style="left: ${this.timelineHover.x}px">
-              ${hoveredSection ? html`<span class="timeline-tooltip-heading">${resolveLocalized(hoveredSection.label, this.playerLang)}</span>` : ''}
-              ${hoveredScene ? html`<span class="timeline-tooltip-subheading">${resolveLocalized(hoveredScene.label || hoveredScene.id, this.playerLang)}</span>` : ''}
+              ${tooltipHeading ? html`<span class="timeline-tooltip-heading">${resolveLocalized(tooltipHeading, this.playerLang)}</span>` : ''}
+              ${tooltipSubheading ? html`<span class="timeline-tooltip-subheading">${resolveLocalized(tooltipSubheading, this.playerLang)}</span>` : ''}
             </div>
           ` : ''}
         </div>
