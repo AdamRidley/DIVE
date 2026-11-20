@@ -2311,7 +2311,9 @@ export class DiveVideo extends LitElement {
         ${this.isPlaying
           ? html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>`
           : html`<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M8 5v14l11-7z"/></svg>`}
-        <span class="play-label" aria-hidden="true">${this.isPlaying ? ui.pause : ui.play}</span>
+        <span class="play-label" aria-hidden="true"
+          style=${this.story?.showPlayLabel === undefined ? '' : `display: ${this.story.showPlayLabel ? 'inline' : 'none'}`}
+        >${this.isPlaying ? ui.pause : ui.play}</span>
       </button>
     `;
 

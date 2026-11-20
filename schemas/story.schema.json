@@ -58,6 +58,10 @@
       "type": "boolean",
       "description": "Show the viewer layout selector in Settings; defaults to true"
     },
+    "showPlayLabel": {
+      "type": "boolean",
+      "description": "Show the localized Play/Pause button label; omitted uses the player theme"
+    },
     "showCaptionLocationSetting": {
       "type": "boolean",
       "description": "Show the viewer caption location selector in Settings; defaults to true"

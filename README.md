@@ -99,6 +99,10 @@ Playback and seeking do not write time or scene parameters into the host page's
 URL. Incoming `t` / `scene` deep links are still read and preserved; language
 selection may update `lang` without changing unrelated query parameters.
 
+Set story `"showPlayLabel": true` to show the localized Play/Pause text for that
+story without host CSS. Explicit `false` hides it; omission preserves the existing
+`--dive-play-button-label-display` theme control and icon-only player default.
+
 Use `<dive-video src="./story.json" muted></dive-video>` to start with sound off; the speaker control enables it on demand. The `isMuted` property also supports programmatic changes without reflecting runtime mute state into the host attribute. Player controls have built-in English and Welsh text; other languages (or rewording) come from `playerText` (see below). `dive-language-change` emits `{ lang }` in its event detail when the active language changes.
 
 Host attributes and inline CSS are author inputs, not storage for calculated state.

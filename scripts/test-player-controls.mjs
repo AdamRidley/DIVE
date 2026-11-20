@@ -239,6 +239,25 @@ try {
     rule.style.removeProperty('height');
   });
   const player = page.locator('dive-video');
+  const playLabel = player.locator('.play-label');
+  assert.equal(await playLabel.isVisible(), false, 'Shared player remains icon-only by default');
+  await player.evaluate(element => { element.story = { ...element.story, showPlayLabel: true }; });
+  assert.ok(await playLabel.isVisible(), 'Story must enable the label without host styling');
+  await player.evaluate(element => element.setLanguage('en'));
+  assert.equal(await playLabel.textContent(), 'Play');
+  await player.evaluate(element => { element.isPlaying = true; });
+  assert.equal(await playLabel.textContent(), 'Pause');
+  await player.evaluate(element => element.setLanguage('cy'));
+  assert.equal(await playLabel.textContent(), 'Oedi');
+  await player.evaluate(element => {
+    element.isPlaying = false;
+    element.style.setProperty('--dive-play-button-label-display', 'inline');
+    element.story = { ...element.story, showPlayLabel: false };
+  });
+  assert.equal(await playLabel.isVisible(), false, 'Explicit story false overrides the theme');
+  await player.evaluate(element => { element.story = { ...element.story, showPlayLabel: undefined }; });
+  assert.ok(await playLabel.isVisible(), 'Omitting the setting preserves existing theme control');
+  await player.evaluate(element => element.style.removeProperty('--dive-play-button-label-display'));
   await player.evaluate(element => {
     element.story = { ...element.story, captionsBelow: true, languageToggle: 'menu' };
     element.captionsBelow = undefined;

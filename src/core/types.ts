@@ -18,6 +18,8 @@ export interface Story {
    */
   uiMode?: UiMode;
   showUiModeSetting?: boolean;
+  /** Show the localized Play/Pause label; when omitted, use the player theme. */
+  showPlayLabel?: boolean;
   showCaptionLocationSetting?: boolean;
   /**
    * Where the language picker appears when `languages` has more than one entry.
