@@ -107,13 +107,13 @@ try {
   assert.equal(await page.locator('dive-video .progress-percent, dive-video [role="progressbar"]').count(), 0);
   assert.equal((await time.textContent()).trim(), '0:00 / 1:00');
   const captions = page.locator('dive-video .captions-btn');
-  assert.equal(await captions.getAttribute('aria-pressed'), 'true', 'Available captions start enabled, as before');
-  assert.equal(await captions.locator('rect').count(), 0, 'Enabled CC uses the filled icon');
-  await captions.click();
-  assert.equal(await captions.getAttribute('aria-pressed'), 'false');
+  assert.equal(await captions.getAttribute('aria-pressed'), 'false', 'Captions start disabled even when a track exists');
   assert.equal(await captions.locator('rect').getAttribute('fill'), 'none', 'Disabled CC uses the outline icon');
+  await captions.click();
+  assert.equal(await captions.getAttribute('aria-pressed'), 'true');
+  assert.equal(await captions.locator('rect').count(), 0, 'Enabled CC uses the filled icon');
   await captions.press('Enter');
-  assert.equal(await captions.getAttribute('aria-pressed'), 'true', 'Keyboard toggling turns captions on');
+  assert.equal(await captions.getAttribute('aria-pressed'), 'false', 'Keyboard toggling turns captions off');
   assert.ok(await page.locator('dive-video .section-band').first().evaluate(element =>
     getComputedStyle(element).borderRightColor === 'rgb(255, 255, 255)'),
   'Timeline section boundaries must stay solid white');

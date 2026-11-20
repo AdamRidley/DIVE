@@ -1315,7 +1315,11 @@ export class DiveVideo extends LitElement {
       this.captionTracks = this.story
         ? await resolveCaptionTracks(this.story.captions, this.storyBaseUrl)
         : [];
-      this.captionsEnabled = this.captionTracks.some((track) => track.kind !== 'descriptions');
+      // Captions start off at the player level, so a story that merely ships tracks
+      // does not put text over the picture uninvited. configure({ captionsDefault: true })
+      // opts a page in.
+      this.captionsEnabled = (playerDefaults().captionsDefault ?? false)
+        && this.captionTracks.some((track) => track.kind !== 'descriptions');
       this.sceneReady = false;
       this.hasStarted = false;
       this.ended = false;

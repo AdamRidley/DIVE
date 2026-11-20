@@ -70,9 +70,10 @@ Story JSON can include `aspectRatio` (default `9:16`), `audio` (URL or clip obje
 
 Set story `"captionsBelow": true`, or add the element's `captions-below` attribute,
 to place captions in a fixed-height single-line band beneath the picture.
-When caption tracks are available, captions start enabled, preserving the existing
-default; the CC button toggles them. Sound remains enabled by default unless the
-host sets `muted`.
+Captions start switched off at the player level, even when tracks are available.
+`configure({ captionsDefault: true })` starts a page with them on; the CC button
+toggles them either way. Sound remains enabled by default unless the host sets
+`muted`.
 
 Scenes may provide a localized `label` for chapter controls, timeline markers,
 tooltips, and iframe titles; the scene ID remains the fallback. `settingsLinks`

@@ -13,6 +13,8 @@ export interface PlayerDefaults {
   showUiModeSetting?: boolean;
   /** Show the viewer's Overlaid / Below caption location selector. Defaults to true. */
   showCaptionLocationSetting?: boolean;
+  /** Start with captions switched on when a track is available. Defaults to false. */
+  captionsDefault?: boolean;
   languages?: LanguageOption[];
   languageToggle?: LanguageToggle;
   pauseOnInteract?: boolean;
