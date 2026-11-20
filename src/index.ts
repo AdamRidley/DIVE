@@ -26,7 +26,8 @@ export type {
   LanguageToggle,
   SettingsLink,
 } from './core/types';
-export { parseAspectRatio, containSize, DEFAULT_ASPECT } from './core/aspect';
+export { parseAspectRatio, containSize, DEFAULT_ASPECT, DEFAULT_PRELOAD_ASPECT } from './core/aspect';
+export type { AspectRatio } from './core/aspect';
 export { parseVtt, cuesAtTime, captionTracksForLocale } from './core/captions';
 export { collectStoryAudio, filterAudioClips } from './core/audio';
 export { resolveLocalized, resolvePlayerLanguage, DEFAULT_LANGUAGE } from './core/locale';

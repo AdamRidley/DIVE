@@ -9,6 +9,7 @@ import {
 import { playerCopy, resolvePlayerLanguage } from '../src/core/locale.ts';
 import { resolveUiMode } from '../src/core/ui-mode.ts';
 import { readDiveUrlState, writeDiveUrlState } from '../src/core/url-state.ts';
+import { DEFAULT_ASPECT, DEFAULT_PRELOAD_ASPECT, parseAspectRatio } from '../src/core/aspect.ts';
 
 const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
 const originalHistory = Object.getOwnPropertyDescriptor(globalThis, 'history');
@@ -85,5 +86,13 @@ const languages = [{ code: 'en', label: 'English' }, { code: 'cy', label: 'Cymra
 assert.equal(resolvePlayerLanguage(languages, null, 'cy'), 'cy');
 assert.equal(resolvePlayerLanguage(languages, 'en', 'cy'), 'en', 'Explicit language overrides the configured initial locale');
 assert.equal(resolvePlayerLanguage(languages, null, 'unsupported'), 'en', 'Unavailable preferred locales must use the existing fallback');
+
+assert.deepEqual(parseAspectRatio(undefined), DEFAULT_ASPECT, 'Stories default to the documented story aspect');
+assert.deepEqual(parseAspectRatio(undefined, DEFAULT_PRELOAD_ASPECT), DEFAULT_PRELOAD_ASPECT,
+  'The preload placeholder falls back to landscape');
+assert.deepEqual(parseAspectRatio('4:3', DEFAULT_PRELOAD_ASPECT), { width: 4, height: 3 });
+assert.deepEqual(parseAspectRatio('bogus', DEFAULT_PRELOAD_ASPECT), DEFAULT_PRELOAD_ASPECT,
+  'Invalid placeholders must not invent a ratio');
+assert.equal(DEFAULT_PRELOAD_ASPECT.width / DEFAULT_PRELOAD_ASPECT.height, 16 / 9);
 
 console.log('player-config: ok');

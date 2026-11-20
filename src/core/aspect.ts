@@ -5,13 +5,23 @@ export interface AspectRatio {
 
 export const DEFAULT_ASPECT: AspectRatio = { width: 9, height: 16 };
 
-export function parseAspectRatio(value?: string | number | null): AspectRatio {
+/**
+ * Placeholder aspect used before a story declares its own. Landscape, because the
+ * player is normally embedded in a wide slot and a portrait placeholder makes the
+ * page jump when the story lands.
+ */
+export const DEFAULT_PRELOAD_ASPECT: AspectRatio = { width: 16, height: 9 };
+
+export function parseAspectRatio(
+  value?: string | number | null,
+  fallback: AspectRatio = DEFAULT_ASPECT,
+): AspectRatio {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
     return { width: value, height: 1 };
   }
 
   if (!value || typeof value !== 'string') {
-    return { ...DEFAULT_ASPECT };
+    return { ...fallback };
   }
 
   const trimmed = value.trim();
@@ -29,7 +39,7 @@ export function parseAspectRatio(value?: string | number | null): AspectRatio {
     return { width: numeric, height: 1 };
   }
 
-  return { ...DEFAULT_ASPECT };
+  return { ...fallback };
 }
 
 export function aspectCss(aspect: AspectRatio): string {

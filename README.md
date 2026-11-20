@@ -66,7 +66,15 @@ The player shows an accessible alert and offers Retry for scene and packed-audio
 failures. Invalid Settings links are skipped with a warning for the active
 language; they do not prevent the story from loading.
 
-Story JSON can include `aspectRatio` (default `9:16`), `audio` (URL or clip objects), and `captions` (WebVTT URL or `{ startTime, endTime, text }` cues). The default height follows available width and the story aspect ratio, adding inset controls and below-video captions, capped at `100dvh`. The picture is contained without cropping at that cap. Explicit CSS `height` overrides automatic sizing and its viewport cap; `width`, `min-height` and `max-height` also remain available. Forced boxes and fullscreen may letterbox.
+Story JSON can include `aspectRatio` (default `16:9`), `audio` (URL or clip objects), and `captions` (WebVTT URL or `{ startTime, endTime, text }` cues). The default height follows available width and the story aspect ratio, adding inset controls and below-video captions, capped at `100dvh`. The picture is contained without cropping at that cap. Explicit CSS `height` overrides automatic sizing and its viewport cap; `width`, `min-height` and `max-height` also remain available. Forced boxes and fullscreen may letterbox.
+
+The element is `16:9` until the story loads, so the slot does not resize when it arrives. Override the placeholder when your story is a different shape with the `preload-aspect-ratio` attribute or the `--dive-preload-aspect-ratio` custom property; the same value is used for a story that omits `aspectRatio`, so there is no jump either way:
+
+```html
+<dive-video src="./story.dive" preload-aspect-ratio="9:16"></dive-video>
+<!-- or -->
+<style>dive-video { --dive-preload-aspect-ratio: 4 / 3; }</style>
+```
 
 Set story `"captionsBelow": true`, or add the element's `captions-below` attribute,
 to place captions in a fixed-height single-line band beneath the picture.

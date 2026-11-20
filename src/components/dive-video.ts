@@ -7,7 +7,7 @@ import { D3ScatterplotAdapter } from '../adapters/D3ScatterplotAdapter';
 import { D3MapAdapter } from '../adapters/D3MapAdapter';
 import { IframeAdapter } from '../adapters/IframeAdapter';
 
-import { aspectCss, containSize, parseAspectRatio } from '../core/aspect';
+import { DEFAULT_PRELOAD_ASPECT, aspectCss, containSize, parseAspectRatio, type AspectRatio } from '../core/aspect';
 import { stageSize } from '../core/stage';
 import { AudioEngine, collectStoryAudio, filterAudioClips } from '../core/audio';
 import { captionTracksForLocale, cuesAtTime, resolveCaptionTracks, ResolvedCaptionTrack } from '../core/captions';
@@ -56,6 +56,11 @@ export class DiveVideo extends LitElement {
   @property({ type: String, attribute: 'ui-mode' }) uiMode = '';
   @property({ type: String, attribute: 'language-toggle' }) languageToggle = '';
   @property({ type: Boolean, attribute: 'captions-below' }) captionsBelow: boolean | undefined = undefined;
+  /**
+   * Aspect ratio to use before the story declares one, e.g. `16:9`. Falls back to
+   * `--dive-preload-aspect-ratio`, then 16:9. Ignored once the story loads.
+   */
+  @property({ type: String, attribute: 'preload-aspect-ratio' }) preloadAspectRatio = '';
 
   @state() private story: Story | null = null;
   @state() private isPlaying = false;
@@ -133,7 +138,7 @@ export class DiveVideo extends LitElement {
       width: 100%;
       max-width: 100%;
       height: auto;
-      aspect-ratio: var(--aspect-ratio, 9 / 16);
+      aspect-ratio: var(--aspect-ratio, var(--dive-preload-aspect-ratio, 16 / 9));
       background: #000;
       overflow: hidden;
       font-family: var(--dive-font, sans-serif);
@@ -1205,13 +1210,25 @@ export class DiveVideo extends LitElement {
     else this.hostInternals.states.delete(name);
   }
 
+  /**
+   * Story aspect once known, otherwise the preload placeholder: element attribute,
+   * then the `--dive-preload-aspect-ratio` custom property, then 16:9.
+   */
+  private resolvedAspect(style?: CSSStyleDeclaration): AspectRatio {
+    const declared = this.story?.aspectRatio;
+    if (declared) return parseAspectRatio(declared);
+    const fromAttribute = this.preloadAspectRatio?.trim();
+    const fromCss = style?.getPropertyValue('--dive-preload-aspect-ratio').trim();
+    return parseAspectRatio(fromAttribute || fromCss || null, DEFAULT_PRELOAD_ASPECT);
+  }
+
   private applyAutoHeight() {
     const topScrim = this.renderRoot.querySelector<HTMLElement>('.top-scrim');
     const controls = this.renderRoot.querySelector<HTMLElement>('.controls');
     if (topScrim && controls) topScrim.style.height = `${controls.getBoundingClientRect().height}px`;
     const style = getComputedStyle(this);
     const paddingWidth = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
-    const aspect = parseAspectRatio(this.story?.aspectRatio);
+    const aspect = this.resolvedAspect(style);
     const width = this.clientWidth - paddingWidth;
     let sizingRule = `:host { --aspect-ratio: ${aspectCss(aspect)}; }`;
     if (width > 0) {
@@ -1249,7 +1266,7 @@ export class DiveVideo extends LitElement {
     if (!wrap || !cell) {
       return;
     }
-    const aspect = parseAspectRatio(this.story?.aspectRatio);
+    const aspect = this.resolvedAspect(getComputedStyle(this));
     const fitted = containSize(cell.clientWidth, cell.clientHeight, aspect);
     if (!(fitted.width > 0) || !(fitted.height > 0)) {
       return;
@@ -2320,7 +2337,7 @@ export class DiveVideo extends LitElement {
       return true;
     });
 
-    const aspect = parseAspectRatio(this.story.aspectRatio);
+    const aspect = this.resolvedAspect();
     const hasCaptions = this.captionTracks.some((track) => track.kind !== 'descriptions');
     const hasDescriptions = this.allAudioSpecs.some((clip) => clip.role === 'descriptions')
       || this.captionTracks.some((track) => track.kind === 'descriptions');
