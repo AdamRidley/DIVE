@@ -26,6 +26,16 @@
       "volume": 1
     }
   ],
+  "settingsLinks": [
+    {
+      "label": {
+        "en": "Data source: Gapminder",
+        "cy": "Ffynhonnell ddata: Gapminder"
+      },
+      "href": "https://www.gapminder.org/data/",
+      "newTab": true
+    }
+  ],
   "timelineSections": [
     {
       "id": "tool1-origins",
@@ -120,6 +130,10 @@
     {
       "id": "phase-1-lifespan-lines",
       "tool": "tools/lifespan-lines.html",
+      "label": {
+        "en": "Lifespan lines",
+        "cy": "Llinellau hyd oes"
+      },
       "pauseOnInteract": false,
       "startTime": 0,
       "endTime": 30000,
@@ -241,6 +255,10 @@
     {
       "id": "phase-2-rosling-bubbles",
       "tool": "tools/rosling-bubbles.html",
+      "label": {
+        "en": "Income and health bubbles",
+        "cy": "Swigod incwm ac iechyd"
+      },
       "pauseOnInteract": false,
       "startTime": 30000,
       "endTime": 75000,
@@ -343,6 +361,10 @@
     {
       "id": "phase-3-population-blocks",
       "tool": "tools/population-blocks.html",
+      "label": {
+        "en": "Population blocks",
+        "cy": "Blociau poblogaeth"
+      },
       "pauseOnInteract": true,
       "startTime": 75000,
       "endTime": 110000,
