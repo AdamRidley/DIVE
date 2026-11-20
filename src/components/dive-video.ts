@@ -83,10 +83,11 @@ export class DiveVideo extends LitElement {
   @state() private packMediaError = false;
   private packedAudioKey = '';
   private packedAudioVersion = 0;
+  private configuredAudioKey = '';
   @state() private storyError = false;
   private storyReadyEmitted = false;
+  private warnedSettingsLinks = new Set<string>();
   @state() private toolFading = false;
-  @state() private compactControls = false;
   @state() private viewerUiMode: ReturnType<typeof parseUiMode> = null;
   @state() private viewerCaptionsBelow: boolean | null = null;
   @state() private timelineHover: { time: number; x: number } | null = null;
@@ -131,7 +132,8 @@ export class DiveVideo extends LitElement {
       position: relative;
       width: 100%;
       max-width: 100%;
-      height: 100dvh;
+      height: auto;
+      aspect-ratio: var(--aspect-ratio, 9 / 16);
       background: #000;
       overflow: hidden;
       font-family: var(--dive-font, sans-serif);
@@ -421,6 +423,8 @@ export class DiveVideo extends LitElement {
       position: static;
       box-sizing: border-box;
       width: 100%;
+      min-width: 0;
+      max-width: 100%;
       height: calc(1lh + 16px);
       flex-shrink: 0;
       display: grid;
@@ -432,13 +436,17 @@ export class DiveVideo extends LitElement {
       line-height: 1.35;
     }
     .captions.below .caption-cue {
+      display: block;
+      box-sizing: border-box;
       background: none;
       padding: 0;
       font-size: inherit;
       line-height: inherit;
       white-space: nowrap;
-      width: max-content;
-      max-width: none;
+      width: 100%;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: clip;
     }
     .buffer-spinner {
       position: absolute;
@@ -940,7 +948,6 @@ export class DiveVideo extends LitElement {
     this.addEventListener('keydown', this.handleKeyboardNavigation, true);
     this.addEventListener('focusin', this.resetUIHideTimer);
     this.addEventListener('focusout', this.handleFocusOut);
-    this.handleControlLayoutChange();
     if (!this.hasAttribute('tabindex')) {
       this.tabIndex = 0;
     }
@@ -952,7 +959,6 @@ export class DiveVideo extends LitElement {
       if (this.autoHeightFrame) return;
       this.autoHeightFrame = requestAnimationFrame(() => {
         this.autoHeightFrame = 0;
-        this.handleControlLayoutChange();
         this.fitBelowCaption();
         this.applyAutoHeight();
       });
@@ -1126,16 +1132,6 @@ export class DiveVideo extends LitElement {
     queueMicrotask(() => this.resetUIHideTimer());
   };
 
-  private handleControlLayoutChange = () => {
-    const compact = this.clientWidth <= 600;
-    if (compact === this.compactControls) return;
-    const restorePlayFocus = this.shadowRoot?.activeElement?.getAttribute('part') === 'play-button';
-    this.compactControls = compact;
-    if (restorePlayFocus) {
-      void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLElement>('[part="play-button"]')?.focus());
-    }
-  };
-
   private handlePlayCatcher = (event: Event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1187,19 +1183,20 @@ export class DiveVideo extends LitElement {
   private fitBelowCaption() {
     const band = this.renderRoot.querySelector<HTMLElement>('.captions.below');
     const cue = band?.querySelector<HTMLElement>('.caption-cue');
-    if (!band || !cue) {
+    const parent = band?.parentElement;
+    if (!band || !cue || !parent) {
       this.belowCaptionFitKey = '';
       return;
     }
     const style = getComputedStyle(band);
-    const width = band.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const width = parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
     const key = `${width}|${style.font}|${cue.textContent}`;
     if (key === this.belowCaptionFitKey || width <= 0) return;
     this.belowCaptionFitKey = key;
     cue.style.fontSize = '';
-    const naturalWidth = cue.getBoundingClientRect().width;
+    const naturalWidth = cue.scrollWidth;
     if (naturalWidth > width) {
-      cue.style.fontSize = `${parseFloat(style.fontSize) * width / naturalWidth}px`;
+      cue.style.fontSize = `${Math.max(12, parseFloat(style.fontSize) * width / naturalWidth)}px`;
     }
   }
 
@@ -1216,27 +1213,33 @@ export class DiveVideo extends LitElement {
     const paddingWidth = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
     const aspect = parseAspectRatio(this.story?.aspectRatio);
     const width = this.clientWidth - paddingWidth;
-    if (width <= 0) return;
-    let height = width * aspect.height / aspect.width;
-    const extras = this.activeUiMode() === 'inset'
-      ? '.chrome-top, .controls, .captions.below'
-      : '.captions.below';
-    for (const element of this.renderRoot.querySelectorAll(extras)) {
-      height += element.getBoundingClientRect().height;
+    let sizingRule = `:host { --aspect-ratio: ${aspectCss(aspect)}; }`;
+    if (width > 0) {
+      let height = width * aspect.height / aspect.width;
+      const extras = this.activeUiMode() === 'inset'
+        ? '.chrome-top, .controls, .captions.below'
+        : '.captions.below';
+      for (const element of this.renderRoot.querySelectorAll(extras)) {
+        height += element.getBoundingClientRect().height;
+      }
+      if (style.boxSizing === 'border-box') {
+        height += parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+          + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+      }
+      sizingRule += ` :host { height: min(${height}px, 100dvh); }`;
+    } else {
+      sizingRule += ' :host { height: auto; }';
     }
-    if (style.boxSizing === 'border-box') {
-      height += parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
-        + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
-    }
-    const value = `${height}px`;
-    if (this.autoHeight !== value) {
+    sizingRule += ' :host(:fullscreen) { height: 100%; aspect-ratio: auto; }';
+    if (this.autoHeight !== sizingRule) {
       if (!this.sizingSheet) {
         this.sizingSheet = new CSSStyleSheet();
         this.shadowRoot!.adoptedStyleSheets = [...this.shadowRoot!.adoptedStyleSheets, this.sizingSheet];
       }
-      this.sizingSheet.replaceSync(`:host { height: min(${value}, 100dvh); } :host(:fullscreen) { height: 100%; }`);
-      this.autoHeight = value;
+      this.sizingSheet.replaceSync(sizingRule);
+      this.autoHeight = sizingRule;
     }
+    if (width <= 0) return;
     this.applyStageScale();
   }
 
@@ -1260,6 +1263,9 @@ export class DiveVideo extends LitElement {
   }
 
   private async loadStory(url: string) {
+    this.storyError = false;
+    this.storyReadyEmitted = false;
+    this.warnedSettingsLinks.clear();
     try {
       this.viewerUiMode = null;
       this.viewerCaptionsBelow = null;
@@ -1267,6 +1273,7 @@ export class DiveVideo extends LitElement {
       this.packSession = null;
       this.packedAudioKey = '';
       this.packedAudioVersion++;
+      this.configuredAudioKey = '';
       this.packMediaReady = true;
       this.packMediaError = false;
       const urlState = readDiveUrlState();
@@ -1303,7 +1310,6 @@ export class DiveVideo extends LitElement {
         : undefined;
       const startTime = urlState.timeMs ?? startScene?.startTime ?? 0;
       this.currentTime = startTime;
-      this.validateSettingsLinks();
       this.allAudioSpecs = this.story ? collectStoryAudio(this.story, this.storyBaseUrl) : [];
       this.applyLocaleMedia();
       this.captionTracks = this.story
@@ -1783,15 +1789,21 @@ export class DiveVideo extends LitElement {
     return resolveLanguageToggle(this.storyLanguages()?.length || 0, this.story, this.languageToggle);
   }
 
-  private applyLocaleMedia() {
+  private applyLocaleMedia(forceSeek = false) {
     const available = this.packSession?.manifest?.version === 2
       ? this.packSession.availableAudio() : this.allAudioSpecs;
-    this.audioEngine.configure(filterAudioClips(available, this.playerLang, {
+    const clips = filterAudioClips(available, this.playerLang, {
       descriptions: this.descriptionsEnabled,
-    }));
+    });
+    const key = JSON.stringify(clips);
+    if (key !== this.configuredAudioKey) {
+      this.configuredAudioKey = key;
+      this.audioEngine.configure(clips);
+      this.audioHardSeek = true;
+    }
+    if (forceSeek) this.audioHardSeek = true;
     this.audioEngine.setMuted(this.isMuted);
     this.audioEngine.unlock();
-    this.audioHardSeek = true;
     this.syncMedia(this.currentTime);
   }
 
@@ -1803,8 +1815,13 @@ export class DiveVideo extends LitElement {
     if (key === this.packedAudioKey) return;
     this.packedAudioKey = key;
     const version = ++this.packedAudioVersion;
-    this.packMediaReady = false;
     this.packMediaError = false;
+    if (session.hasAll(names)) {
+      this.packMediaReady = true;
+      this.applyLocaleMedia();
+      return;
+    }
+    this.packMediaReady = false;
     this.activeAdapter?.setPlaybackState?.(false, timeMs);
     void session.ensureFiles(names).then(() => {
       if (version !== this.packedAudioVersion || session !== this.packSession || !this.isConnected) return;
@@ -1837,7 +1854,7 @@ export class DiveVideo extends LitElement {
     }
     this.playerLang = code;
     storeLanguage(code);
-    this.applyLocaleMedia();
+    this.applyLocaleMedia(true);
     this.activeAdapter?.setLanguage?.(code);
     for (const tool of this.preparedTools.values()) {
       if (tool.adapter !== this.activeAdapter) tool.adapter?.setLanguage?.(code);
@@ -1916,20 +1933,29 @@ export class DiveVideo extends LitElement {
     this.resetUIHideTimer();
   };
 
-  private settingsLinkUrl(href: string) {
-    const url = new URL(href, this.storyBaseUrl);
+  private settingsLinkUrl(href: string): string | null {
+    const key = `${this.storyBaseUrl}|${this.playerLang}|${href}`;
+    const warn = (error: Error) => {
+      if (this.warnedSettingsLinks.has(key)) return;
+      this.warnedSettingsLinks.add(key);
+      console.warn(`Skipping invalid settings link for ${this.playerLang}: ${href}`, error);
+    };
+    if (typeof href !== 'string' || !href.trim()) {
+      warn(new Error('Settings link URL is empty'));
+      return null;
+    }
+    let url: URL;
+    try {
+      url = new URL(href, this.storyBaseUrl);
+    } catch (error) {
+      warn(error instanceof Error ? error : new Error(String(error)));
+      return null;
+    }
     if (!['http:', 'https:', 'blob:'].includes(url.protocol)) {
-      throw new Error(`Unsupported settings link protocol: ${url.protocol}`);
+      warn(new Error(`Unsupported settings link protocol: ${url.protocol}`));
+      return null;
     }
     return url.href;
-  }
-
-  private validateSettingsLinks() {
-    for (const link of this.story?.settingsLinks || []) {
-      for (const href of typeof link.href === 'string' ? [link.href] : Object.values(link.href)) {
-        this.settingsLinkUrl(href);
-      }
-    }
   }
 
   private navigateToScene(sceneId: string, play: boolean) {
@@ -2008,8 +2034,15 @@ export class DiveVideo extends LitElement {
       return;
     }
     const target = event.composedPath()[0] as HTMLElement | null;
-    if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select, button, a, summary, [role="button"], [role="slider"]'))) {
-      return;
+    if (target instanceof HTMLElement) {
+      if (target.isContentEditable || target.closest('textarea, select, input:not([type="range"])')) return;
+      if (this.settingsOpen || this.chaptersOpen || this.languagesOpen) return;
+      const focusedButton = target.closest('button, a, summary, [role="button"]');
+      if (focusedButton && [' ', 'Enter'].includes(event.key)) return;
+      const nativeRange = target.closest('input[type="range"]');
+      const slider = target.closest('[role="slider"]');
+      const navigationKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'];
+      if ((nativeRange || slider) && navigationKeys.includes(event.key)) return;
     }
     switch (event.key) {
       case ' ':
@@ -2295,8 +2328,12 @@ export class DiveVideo extends LitElement {
     const title = resolveLocalized(this.story.title, this.playerLang);
     const showUiModeSetting = this.story.showUiModeSetting ?? playerDefaults().showUiModeSetting ?? true;
     const showCaptionLocationSetting = this.story.showCaptionLocationSetting ?? playerDefaults().showCaptionLocationSetting ?? true;
+    const settingsLinks = (this.story.settingsLinks || []).flatMap(link => {
+      const href = this.settingsLinkUrl(resolveLocalized(link.href, this.playerLang));
+      return href ? [{ link, href }] : [];
+    });
     const hasSettings = showUiModeSetting || (hasCaptions && showCaptionLocationSetting)
-      || hasDescriptions || !!this.story.settingsLinks?.length;
+      || hasDescriptions || settingsLinks.length > 0;
     const captionsBelow = this.activeCaptionsBelow();
     const chromeMode = this.activeUiMode();
     const chromeHidden = chromeMode === 'autohide' && this.isUIHidden;
@@ -2446,9 +2483,9 @@ export class DiveVideo extends LitElement {
       ${videoSection}
 
       <div class="controls ${chromeHidden ? 'hidden' : ''}" part="controls">
-        ${this.compactControls ? '' : playButton}
-        ${this.compactControls ? '' : this.renderVolumeControl(hasAudio, ui)}
-        ${this.compactControls ? '' : html`<div class="time-display" part="time-display">
+        ${playButton}
+        ${this.renderVolumeControl(hasAudio, ui)}
+        ${html`<div class="time-display" part="time-display">
           <span>${this.formatTime(this.currentTime)} / ${this.formatTime(duration)}</span>
         </div>`}
         <div class="scrubber" part="scrubber" role="slider" tabindex="0"
@@ -2497,12 +2534,6 @@ export class DiveVideo extends LitElement {
             </div>
           ` : ''}
         </div>
-
-        ${this.compactControls ? playButton : ''}
-        ${this.compactControls ? this.renderVolumeControl(hasAudio, ui) : ''}
-        ${this.compactControls ? html`<div class="time-display" part="time-display">
-          <span>${this.formatTime(this.currentTime)} / ${this.formatTime(duration)}</span>
-        </div>` : ''}
 
         ${hasCaptions ? html`
           <button
@@ -2565,13 +2596,13 @@ export class DiveVideo extends LitElement {
               <input
                 type="checkbox"
                 .checked=${this.descriptionsEnabled}
-                @change=${() => { this.descriptionsEnabled = !this.descriptionsEnabled; this.applyLocaleMedia(); }}
+                @change=${() => { this.descriptionsEnabled = !this.descriptionsEnabled; this.applyLocaleMedia(true); }}
               />
               ${ui.audioDescription}
             </label>
           ` : ''}
-          ${(this.story.settingsLinks || []).map(link => html`
-            <a href=${this.settingsLinkUrl(resolveLocalized(link.href, this.playerLang))}
+          ${settingsLinks.map(({ link, href }) => html`
+            <a href=${href}
               download=${link.download === true ? '' : typeof link.download === 'string' || typeof link.download === 'object'
                 ? resolveLocalized(link.download, this.playerLang) : nothing}
               target=${link.newTab ? '_blank' : nothing} rel=${link.newTab ? 'noopener noreferrer' : nothing}

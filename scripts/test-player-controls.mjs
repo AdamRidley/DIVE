@@ -52,7 +52,11 @@ try {
   browser = await chromium.launch({ headless: true, ...(channel ? { channel } : {}) });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = new Set();
+  const warnings = [];
   page.on('pageerror', error => errors.add(error.stack || error.message));
+  page.on('console', message => {
+    if (message.type() === 'warning') warnings.push(message.text());
+  });
   await page.route('**/__controls-test', route => route.fulfill({
     contentType: 'text/html',
     body: `<!doctype html><html lang="en"><style>
@@ -347,9 +351,29 @@ try {
   const timelineAfter = await slider.boundingBox();
   assert.ok(volumeBounds.height > volumeBounds.width * 3, 'Volume slider must render vertically');
   assert.equal(timelineBefore.width, timelineAfter.width, 'Volume popup must not shrink the timeline');
+  const timeBeforeVolumeNavigation = await player.evaluate(element => element.currentTime);
   await volume.focus();
   await volume.press('ArrowDown');
   assert.equal(await volume.inputValue(), '0.99', 'Vertical down arrow must lower volume');
+  assert.equal(await player.evaluate(element => element.currentTime), timeBeforeVolumeNavigation,
+    'Native range navigation must not also seek the story');
+  await play.focus();
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await player.evaluate(element => element.currentTime), timeBeforeVolumeNavigation + 5000,
+    'Arrow seeking must remain available while an ordinary player button has focus');
+  await page.keyboard.press('ArrowLeft');
+  assert.equal(await player.evaluate(element => element.currentTime), timeBeforeVolumeNavigation);
+  await page.keyboard.press('k');
+  assert.equal(await player.evaluate(element => element.isPlaying), true,
+    'Player shortcuts must remain available while a button has focus');
+  await page.keyboard.press('k');
+  assert.equal(await player.evaluate(element => element.isPlaying), false);
+  await page.keyboard.press('Space');
+  assert.equal(await player.evaluate(element => element.isPlaying), true,
+    'Space must use native button activation without a duplicate global toggle');
+  await page.keyboard.press('Enter');
+  assert.equal(await player.evaluate(element => element.isPlaying), false,
+    'Enter must use native button activation without a duplicate global toggle');
   for (const [level, waves] of [[0, 0], [0.01, 1], [0.33, 1], [0.34, 2], [0.66, 2], [0.67, 3], [1, 3]]) {
     await setVolume(level);
     await player.evaluate(element => element.updateComplete);
@@ -388,6 +412,26 @@ try {
   await player.locator('#settings-drawer a').click();
   assert.equal((await downloadEvent).suggestedFilename(), 'fixture.txt');
   await page.keyboard.press('Escape');
+  await player.evaluate(element => {
+    element.story = { ...element.story, settingsLinks: [{
+      label: { en: 'Valid link', cy: 'Invalid link' },
+      href: { en: '/__controls-download.txt', cy: 'javascript:alert(1)' },
+    }] };
+    element.setLanguage('en');
+  });
+  await player.locator('[aria-controls="settings-drawer"]').click();
+  assert.equal(await player.locator('#settings-drawer a').count(), 1,
+    'Valid links for the active language should remain visible');
+  await page.keyboard.press('Escape');
+  await player.evaluate(element => element.setLanguage('cy'));
+  await player.locator('[aria-controls="settings-drawer"]').click();
+  assert.equal(await player.locator('#settings-drawer a').count(), 0,
+    'An invalid inactive-language link must not break the story or render an unsafe href');
+  assert.equal(await player.evaluate(element => element.storyError), false);
+  assert.ok(warnings.some(warning => warning.includes('Skipping invalid settings link for cy')),
+    'Invalid active-language links must be reported explicitly');
+  await page.keyboard.press('Escape');
+  await player.evaluate(element => element.setLanguage('en'));
   await slider.press('ArrowRight');
   const progress = await player.locator('.progress').evaluate(node => {
     const style = getComputedStyle(node);
@@ -566,7 +610,7 @@ try {
         && Math.abs(canvas.width - wrap.width) < 1 && Math.abs(canvas.height - wrap.height) < 1;
     }, null, { timeout: 5000 });
   }
-  for (const width of [320, 720]) {
+  for (const width of [320, 360, 720]) {
     await player.evaluate((element, width) => { element.style.width = `${width}px`; }, width);
     await page.waitForTimeout(100);
     let baseline;
@@ -583,20 +627,51 @@ try {
         return {
           pictureHeight: picture.height, bandHeight: band.getBoundingClientRect().height,
           cueWidth: cue.getBoundingClientRect().width, cueHeight: cue.getBoundingClientRect().height,
-          availableWidth: band.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+          cueScrollWidth: cue.scrollWidth,
+          availableWidth: band.parentElement.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
           lineHeight: parseFloat(getComputedStyle(cue).lineHeight),
+          fontSize: parseFloat(getComputedStyle(cue).fontSize),
+          overflow: getComputedStyle(cue).overflow,
           whitespace: getComputedStyle(cue).whiteSpace,
         };
       });
       baseline ||= dimensions;
       assert.equal(dimensions.whitespace, 'nowrap');
       assert.ok(dimensions.cueWidth <= dimensions.availableWidth + 0.5,
-        `${width}px: complete captions must fit without clipping or wrapping`);
+        `${width}px: the caption box must stay inside the available band`);
+      assert.ok(dimensions.fontSize >= 12, `${width}px: long captions must not shrink below a readable floor`);
+      assert.equal(dimensions.overflow, 'hidden');
+      if (text.length <= 20) {
+        assert.ok(dimensions.cueScrollWidth <= dimensions.availableWidth + 0.5,
+          `${width}px: short captions must fit without clipping`);
+      }
       assert.ok(dimensions.cueHeight <= dimensions.lineHeight + 0.5, 'Captions must remain one rendered line');
       assert.equal(dimensions.bandHeight, baseline.bandHeight, 'Cue changes and gaps must not resize the caption band');
       assert.equal(dimensions.pictureHeight, baseline.pictureHeight, 'Cue changes and gaps must not resize the picture');
     }
   }
+  await player.evaluate(element => {
+    element.activeCues = [{ startTime: 0, endTime: 60000, text: 'W'.repeat(183) }];
+  });
+  const longCaption = await player.evaluate(element => {
+    const band = element.shadowRoot.querySelector('.captions.below');
+    const cue = band.querySelector('.caption-cue');
+    return {
+      bandWidth: band.getBoundingClientRect().width,
+      parentWidth: band.parentElement.getBoundingClientRect().width,
+      cueWidth: cue.getBoundingClientRect().width,
+      availableWidth: band.parentElement.clientWidth
+        - parseFloat(getComputedStyle(band).paddingLeft) - parseFloat(getComputedStyle(band).paddingRight),
+      fontSize: parseFloat(getComputedStyle(cue).fontSize),
+      scrollWidth: cue.scrollWidth,
+    };
+  });
+  assert.ok(longCaption.bandWidth <= longCaption.parentWidth + 0.5,
+    'An overlong cue must not expand the caption grid track');
+  assert.ok(longCaption.cueWidth <= longCaption.availableWidth + 0.5);
+  assert.equal(longCaption.fontSize, 12, 'Very long text should stop shrinking at the readable floor');
+  assert.ok(longCaption.scrollWidth > longCaption.cueWidth,
+    'Text beyond the readable floor is clipped within its cue box and remains available to aria-live');
   await player.evaluate(element => element.syncMedia(element.currentTime));
   for (const mode of ['autohide', 'inset']) {
     for (const below of [false, true]) {
@@ -909,6 +984,24 @@ try {
   await page.waitForFunction(() => document.querySelector('dive-video').sceneReady);
   assert.equal(await player.evaluate(element => element.isUIHidden), false,
     'A scene transition must also preserve visible controls');
+  const zeroWidthSizing = await page.evaluate(() => {
+    const rule = [...document.querySelector('style').sheet.cssRules]
+      .find(rule => rule.selectorText === 'dive-video');
+    rule.style.removeProperty('height');
+    const element = document.createElement('dive-video');
+    element.style.width = '0px';
+    document.body.append(element);
+    element.story = { title: 'Sizing fixture', duration: 1000, aspectRatio: '16:9', scenes: [] };
+    element.applyAutoHeight();
+    const style = getComputedStyle(element);
+    const result = { height: parseFloat(style.height), aspectRatio: style.aspectRatio };
+    element.remove();
+    return result;
+  });
+  assert.ok(zeroWidthSizing.height < 100,
+    'Zero-width players must use the declarative aspect-ratio fallback, not 100dvh');
+  assert.ok(zeroWidthSizing.aspectRatio.includes('16'),
+    'The host sizing fallback must use the story aspect ratio');
   await page.addInitScript(() => {
     window.diveLoadEvents = [];
     for (const type of ['dive-story-ready', 'dive-load-error']) {
@@ -929,6 +1022,27 @@ try {
     { type: 'dive-load-error', src: `${server.resolvedUrls.local[0]}__controls-story.json`, phase: 'story' },
   ]);
   assert.match(await player.getByRole('alert').textContent(), /story could not be loaded/i);
+  await page.route('**/__reload-test', route => route.fulfill({
+    contentType: 'text/html',
+    body: `<!doctype html><dive-video src="/__reload-missing.json"></dive-video>
+      <script>window.readyCount = 0; document.querySelector('dive-video')
+        .addEventListener('dive-story-ready', () => window.readyCount++);</script>
+      <script type="module" src="/src/index.ts"></script>`,
+  }));
+  await page.route('**/__reload-missing.json', route => route.fulfill({ status: 404 }));
+  await page.route('**/__reload-success.json', route => route.fulfill({ json: {
+    title: 'Reload fixture', duration: 1000, scenes: [],
+  } }));
+  await page.goto(`${server.resolvedUrls.local[0]}__reload-test`);
+  const reloadPlayer = page.locator('dive-video');
+  await page.waitForFunction(() => document.querySelector('dive-video')?.storyError === true);
+  await reloadPlayer.evaluate(element => element.loadStory('/__reload-success.json'));
+  assert.equal(await reloadPlayer.evaluate(element => element.storyError), false,
+    'A successful reload must clear the previous story error');
+  assert.equal(await page.evaluate(() => window.readyCount), 1);
+  await reloadPlayer.evaluate(element => element.loadStory('/__reload-success.json'));
+  assert.equal(await page.evaluate(() => window.readyCount), 2,
+    'Each successful load must emit readiness once');
   assert.deepEqual([...errors], [], 'Control interactions must not throw browser errors');
   console.log('Player controls: styles, languages, scene labels, mouse-centred tooltips, aligned markers, stable single-line captions, seeking and sizing passed.');
 } finally {

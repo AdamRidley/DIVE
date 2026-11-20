@@ -25,3 +25,4 @@ export interface DiveManifest {
 
 export const DIVE_MANIFEST_NAME = 'dive.json';
 export const DIVE_STORY_NAME = 'story.json';
+export const MAX_DIVE_MANIFEST_SIZE = 1024 * 1024;

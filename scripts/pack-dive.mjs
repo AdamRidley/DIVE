@@ -11,6 +11,7 @@ const CENTRAL_SIG = 0x02014b50;
 const EOCD_SIG = 0x06054b50;
 const DEFLATE = 8;
 const STORE = 0;
+const MAX_DIVE_MANIFEST_SIZE = 1024 * 1024;
 
 function dosDateTime(date = new Date()) {
   const dosTime = (date.getSeconds() / 2) | (date.getMinutes() << 5) | (date.getHours() << 11);
@@ -346,6 +347,8 @@ async function main() {
 
   const stamp = dosDateTime();
   const headerSize = (name) => 30 + Buffer.byteLength(name, 'utf8');
+  const maxManifestSize = format === 1 ? 64 * 1024 : MAX_DIVE_MANIFEST_SIZE;
+  const maxManifestDataSize = maxManifestSize - headerSize('dive.json');
 
   const padManifest = (manifest, size) => {
     const text = `${JSON.stringify(manifest, null, 2)}\n`;
@@ -361,7 +364,7 @@ async function main() {
   let manifest = null;
   let manifestRaw = null;
 
-  while (diveJsonSize <= 64 * 1024) {
+  while (diveJsonSize <= maxManifestDataSize) {
     built = [];
     let cursor = headerSize('dive.json') + diveJsonSize;
     for (const item of planned) {
@@ -410,11 +413,12 @@ async function main() {
     if (manifestRaw) {
       break;
     }
-    diveJsonSize *= 2;
+    if (diveJsonSize === maxManifestDataSize) break;
+    diveJsonSize = Math.min(diveJsonSize * 2, maxManifestDataSize);
   }
 
   if (!manifestRaw || !manifest) {
-    throw new Error('dive.json is too large to pad into a stable prefix');
+    throw new Error(`dive.json exceeds the ${maxManifestSize / 1024} KiB manifest limit`);
   }
 
   const manifestEntry = {

@@ -1,9 +1,11 @@
-import { DIVE_MANIFEST_NAME, DIVE_STORY_NAME, DiveByteRange, DiveManifest } from './dive-manifest';
+import { DIVE_MANIFEST_NAME, DIVE_STORY_NAME, MAX_DIVE_MANIFEST_SIZE, DiveByteRange, DiveManifest } from './dive-manifest';
 import { ZipEntry, ZipStreamParser, isZipBuffer, looksLikeDiveUrl, readZipEntries } from './zip-read';
 import { Story } from './types';
 import { collectStoryAudio, filterAudioClips, type NormalizedAudioClip } from './audio';
 export { looksLikeDiveUrl } from './zip-read';
 export { DIVE_MANIFEST_NAME, DIVE_STORY_NAME } from './dive-manifest';
+
+const BACKFILL_CONCURRENCY = 4;
 
 export interface DivePack {
   manifest: DiveManifest | null;
@@ -484,22 +486,33 @@ export class DivePackSession implements DivePack {
     if (this.backfillStarted || this.manifest?.version !== 2) return;
     this.backfillStarted = true;
     if (!this.supportsRange) return; // The sequential pump already fetches every entry.
+    const active = new Set(this.audioFiles(language, timeMs, descriptions));
     const deferred = new Set(this.declaredAudio()
       .filter(clip => clip.lang && clip.lang !== language)
       .map(clip => this.audioPath(clip)).filter((name): name is string => !!name));
     const names = Object.keys(this.manifest.files!);
-    const order = [...new Set([
-      ...this.audioFiles(language, timeMs, descriptions),
-      ...names.filter(name => !deferred.has(name)),
-      ...names.filter(name => deferred.has(name)),
-    ])];
+    const phases = [
+      names.filter(name => active.has(name)),
+      names.filter(name => !active.has(name) && !deferred.has(name)),
+      names.filter(name => deferred.has(name)),
+    ];
     void (async () => {
-      for (const name of order) {
-        try {
-          await this.ensureFiles([name]);
-        } catch (error) {
-          console.error(`Failed to backfill packed file ${name}`, error);
-        }
+      for (const phase of phases) {
+        let next = 0;
+        const worker = async () => {
+          while (next < phase.length) {
+            const name = phase[next++];
+            try {
+              await this.ensureFiles([name]);
+            } catch (error) {
+              console.error(`Failed to backfill packed file ${name}`, error);
+            }
+          }
+        };
+        await Promise.all(Array.from(
+          { length: Math.min(BACKFILL_CONCURRENCY, phase.length) },
+          worker,
+        ));
       }
     })();
   }
@@ -642,7 +655,7 @@ export async function openDivePack(url: string, options: { sceneId?: string; tim
   }
   const view = new DataView(header.buffer, header.byteOffset, header.byteLength);
   const entryLength = 30 + view.getUint16(26, true) + view.getUint16(28, true) + view.getUint32(18, true);
-  if (entryLength > 128 * 1024 || entryLength < header.length) {
+  if (entryLength > MAX_DIVE_MANIFEST_SIZE || entryLength < header.length) {
     throw new Error('Invalid DIVE manifest entry length');
   }
   const rest = await fetchByteRange(url, header.length, entryLength - header.length);

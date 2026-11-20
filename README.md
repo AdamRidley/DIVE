@@ -63,7 +63,8 @@ initialization and readiness of the initial scene (if there is one).
 for a source/setup failure (with `sceneId: null`), `scene` for an active
 scene failure, including later scenes, or `media` for required packed audio.
 The player shows an accessible alert and offers Retry for scene and packed-audio
-failures.
+failures. Invalid Settings links are skipped with a warning for the active
+language; they do not prevent the story from loading.
 
 Story JSON can include `aspectRatio` (default `9:16`), `audio` (URL or clip objects), and `captions` (WebVTT URL or `{ startTime, endTime, text }` cues). The default height follows available width and the story aspect ratio, adding inset controls and below-video captions, capped at `100dvh`. The picture is contained without cropping at that cap. Explicit CSS `height` overrides automatic sizing and its viewport cap; `width`, `min-height` and `max-height` also remain available. Forced boxes and fullscreen may letterbox.
 
@@ -81,6 +82,8 @@ viewer layout (Default, Autohide, Inset) and caption location (Overlaid, Below)
 choices. These choices do not rewrite story values or host attributes; set
 `showUiModeSetting` or `showCaptionLocationSetting` to `false` on the story or in
 `configure()` to hide the respective selector.
+Keyboard shortcuts also work when focus is on ordinary player buttons. Text
+editing, native selection and slider-navigation keys remain with their controls.
 
 The timeline shows elapsed/total time without a percentage. Section edges remain
 white, internal scene ticks are faded behind labels, and progress is a thin strip

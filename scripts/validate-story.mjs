@@ -55,8 +55,11 @@ for (const file of files) {
       hasErrors = true;
     } else {
       console.log(`✅ ${file}`);
-      const tracks = Array.isArray(data.captions) && data.captions[0]?.text
-        ? [{ cues: data.captions }] : [].concat(data.captions || []);
+      const tracks = typeof data.captions === 'string'
+        ? [{ src: data.captions }]
+        : Array.isArray(data.captions) && data.captions[0]?.text
+          ? [{ cues: data.captions }]
+          : [].concat(data.captions || []);
       for (const track of tracks) {
         for (const warning of captionWarnings(track.cues || [])) {
           console.warn(`   Caption advisory (${track.srclang || 'und'}): ${warning}`);

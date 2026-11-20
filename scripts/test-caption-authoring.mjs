@@ -1,4 +1,9 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { splitCaptionCue, joinCaptionChunks, captionWarnings, CAPTION_LINE_LENGTH } from './caption-authoring.mjs';
 
 const original = {
@@ -25,4 +30,20 @@ assert.ok(captionWarnings([{ startTime: 0, endTime: 7000, text: 'word '.repeat(3
 assert.ok(captionWarnings([{ startTime: 0, endTime: 3000, text: 'Two short\nlines' }]).some(item => item.includes('one line')));
 assert.deepEqual(captionWarnings([{ startTime: 0, endTime: 3000, text: 'A short readable cue.' }]), []);
 assert.throws(() => splitCaptionCue({ startTime: 5, endTime: 5, text: 'Invalid' }), /positive time window/);
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const temporaryDirectory = await mkdtemp(resolve(tmpdir(), 'dive-caption-validation-'));
+try {
+  const story = JSON.parse(await readFile(resolve(root, 'public/story.json'), 'utf8'));
+  story.captions = 'captions.vtt';
+  const storyPath = resolve(temporaryDirectory, 'story.json');
+  await writeFile(storyPath, JSON.stringify(story));
+  const validation = spawnSync(process.execPath, [resolve(root, 'scripts/validate-story.mjs'), storyPath], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  assert.equal(validation.status, 0, validation.stderr);
+  assert.match(validation.stderr, /Caption advisory: review external track captions\.vtt/);
+} finally {
+  await rm(temporaryDirectory, { recursive: true, force: true });
+}
 console.log('caption-authoring: exact words, single lines, proportional timing, gaps and advisories passed');

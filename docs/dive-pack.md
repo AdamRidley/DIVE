@@ -52,7 +52,8 @@ The player does **not** download the whole file first.
    A small audio-loading indicator leaves the visualization visible. Language
    changes and seeks request newly needed audio immediately.
 5. Backfill all other files, then other-language narration last, even if never selected.
-   Identical concurrent range requests share one download. Media failures emit
+   Up to four distinct ranges are fetched concurrently within each priority phase;
+   identical concurrent range requests share one download. Media failures emit
    `dive-load-error` with `phase: "media"` and offer Retry.
 6. Mount and initialize the next scene in a hidden, full-size container while the
    current scene plays. Its data, scripts and `DIVE_READY` handshake complete before
@@ -107,6 +108,10 @@ and lengths include the ZIP local header, filename/extra fields and compressed
 payload, not central directory records. Ranges do not overlap.
 `audio: true` excludes an entry from visual startup. Scene `files` and `shared`
 retain logical ownership, regardless of physical ordering.
+The padded `dive.json` entry is limited to 1 MiB for version 2 so readers can
+fetch it in one bounded range request; the packer reports an error if a story
+exceeds this limit. Version 1 retains its 64 KiB packer limit for older-player
+compatibility.
 
 Version 2 uses individual file ranges, not scene aggregate ranges (which may
 span intervening entries after audio reordering). `prefixEnd` ends after metadata

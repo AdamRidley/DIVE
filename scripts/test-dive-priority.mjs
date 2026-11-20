@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -32,21 +32,31 @@ try {
     title: { en: 'Priority fixture', cy: 'Stori brawf' }, duration: 6000, aspectRatio: '16:9',
     languages: [{ code: 'en', label: 'English' }, { code: 'cy', label: 'Cymraeg' }],
     audio: [
-      { src: 'en.wav', lang: 'en' }, { src: 'cy.wav', lang: 'cy' },
+      ...['en', 'cy'].flatMap(lang => [0, 1, 2].map(index => ({
+        src: `${lang}${index ? `-${index + 1}` : ''}.wav`,
+        lang,
+        startTime: index * 2000,
+        endTime: (index + 1) * 2000,
+      }))),
       { src: 'music.wav', role: 'music', loop: true },
     ],
     scenes: ['one', 'two', 'three'].map((id, i) => ({
       id, tool: `tools/${id}.html`, startTime: i * 2000, endTime: (i + 1) * 2000,
+      dependencies: Array.from({ length: 6 }, (_, index) => `dependencies/${id}-${index}.txt`),
       keyframes: [{ time: 0, state: {} }], overlays: [],
     })),
   };
   await writeFile(resolve(temp, 'story.json'), JSON.stringify(story));
+  await mkdir(resolve(temp, 'dependencies'));
   for (const scene of story.scenes) {
     await writeFile(resolve(temp, scene.tool),
       '<!doctype html><script src="helper.js"></script><h1>Visible scene</h1><script>parent.postMessage({type:"DIVE_READY"},"*")</script>');
+    for (const dependency of scene.dependencies) {
+      await writeFile(resolve(temp, dependency), 'dependency');
+    }
   }
   await writeFile(resolve(temp, 'tools/helper.js'), 'window.visualDependencyReady = true;');
-  for (const name of ['en.wav', 'cy.wav', 'music.wav']) {
+  for (const name of ['en.wav', 'en-2.wav', 'en-3.wav', 'cy.wav', 'cy-2.wav', 'cy-3.wav', 'music.wav']) {
     const pcm = randomBytes(384000);
     const wav = Buffer.alloc(44);
     wav.write('RIFF'); wav.writeUInt32LE(pcm.length + 36, 4); wav.write('WAVEfmt ', 8);
@@ -101,9 +111,29 @@ try {
   globalThis.fetch = async () => new Response(new Uint8Array(2), { status: 206 });
   await assert.rejects(session.ensureFiles(['en.wav']), /Truncated DIVE range/);
   globalThis.fetch = respond;
+  let activeBackfillRanges = 0;
+  let peakBackfillRanges = 0;
+  const backfillStart = ranges.length;
+  globalThis.fetch = async (...args) => {
+    activeBackfillRanges += 1;
+    peakBackfillRanges = Math.max(peakBackfillRanges, activeBackfillRanges);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 10));
+      return await respond(...args);
+    } finally {
+      activeBackfillRanges -= 1;
+    }
+  };
   session.backfill('cy', 0, false);
   await session.waitFor(Object.keys(manifest.files));
-  assert.equal(ranges.at(-1).start, manifest.files['en.wav'].offset, 'Other narration must load last, not remain unloaded');
+  const backfillNames = ranges.slice(backfillStart).map(range =>
+    Object.keys(manifest.files).find(name => manifest.files[name].offset === range.start));
+  const deferredNarrationIndexes = backfillNames.flatMap((name, index) => name?.startsWith('en-') || name === 'en.wav' ? [index] : []);
+  const otherFileIndexes = backfillNames.flatMap((name, index) => name && !name.startsWith('en-') && name !== 'en.wav' ? [index] : []);
+  assert.ok(peakBackfillRanges > 1 && peakBackfillRanges <= 4, 'Backfill uses a bounded concurrency of four');
+  assert.ok(deferredNarrationIndexes.length > 0);
+  assert.ok(Math.max(...otherFileIndexes) < Math.min(...deferredNarrationIndexes),
+    'Other-language narration starts only after all other backfill files finish');
 
   ranges.length = 0;
   const deep = await openDivePack('https://example.invalid/story.dive', { timeMs: 4500 });
@@ -154,6 +184,49 @@ try {
   assert.equal(old.manifest.version, 1);
   assert.ok(old.files.has('en.wav') && old.files.has('tools/one.html'), 'V1 packs must retain legacy startup');
   globalThis.fetch = nativeFetch;
+
+  const largeStory = {
+    title: 'Large manifest fixture',
+    duration: 1500,
+    scenes: Array.from({ length: 1500 }, (_, index) => ({
+      id: `scene-${String(index).padStart(4, '0')}`,
+      startTime: index,
+      endTime: index + 1,
+      tool: 'map',
+      keyframes: [],
+      overlays: [],
+    })),
+  };
+  const largeStoryPath = resolve(temp, 'large-story.json');
+  const largePackPath = resolve(temp, 'large.dive');
+  await writeFile(largeStoryPath, JSON.stringify(largeStory));
+  execFileSync(process.execPath, [resolve(root, 'scripts/pack-dive.mjs'), largeStoryPath, '-o', largePackPath]);
+  const largePack = await loadDivePack(new Uint8Array(await readFile(largePackPath)));
+  assert.ok(largePack.files.get('dive.json').byteLength > 64 * 1024,
+    'Format 2 manifests above the former 64 KiB packer limit remain supported');
+  for (const url of largePack.urls.values()) URL.revokeObjectURL(url);
+  const legacyLargePack = spawnSync(process.execPath, [
+    resolve(root, 'scripts/pack-dive.mjs'), largeStoryPath, '-o', resolve(temp, 'large-v1.dive'), '--format', '1',
+  ], { encoding: 'utf8' });
+  assert.notEqual(legacyLargePack.status, 0);
+  assert.match(legacyLargePack.stderr, /dive\.json exceeds the 64 KiB manifest limit/);
+  const oversizedStoryPath = resolve(temp, 'oversized-story.json');
+  await writeFile(oversizedStoryPath, JSON.stringify({
+    ...largeStory,
+    scenes: Array.from({ length: 14000 }, (_, index) => ({
+      id: `scene-${String(index).padStart(5, '0')}`,
+      startTime: index,
+      endTime: index + 1,
+      tool: 'map',
+      keyframes: [],
+      overlays: [],
+    })),
+  }));
+  const oversizedPack = spawnSync(process.execPath, [
+    resolve(root, 'scripts/pack-dive.mjs'), oversizedStoryPath, '-o', resolve(temp, 'oversized.dive'),
+  ], { encoding: 'utf8' });
+  assert.notEqual(oversizedPack.status, 0);
+  assert.match(oversizedPack.stderr, /dive\.json exceeds the 1024 KiB manifest limit/);
 
   const audioGate = new Promise(resolve => { releaseAudio = resolve; });
   let currentAudioGate = audioGate;
@@ -213,7 +286,31 @@ try {
   await page.waitForFunction(() => document.querySelector('dive-video').currentTime > 100);
   await player.locator('.play-btn').click();
   await page.waitForFunction(() => document.querySelector('dive-video').packSession.files.has('en.wav'));
-  assert.equal(requests.filter(r => r.audio).at(-1).audio, 'en.wav');
+  assert.ok(requests.some(r => r.audio === 'en.wav'), 'Other-language narration must be backfilled');
+  await page.waitForFunction(() => {
+    const session = document.querySelector('dive-video').packSession;
+    return ['cy.wav', 'cy-2.wav', 'cy-3.wav', 'music.wav'].every(name => session.files.has(name));
+  });
+  await player.evaluate(element => {
+    window.audioConfigureCalls = 0;
+    const configure = element.audioEngine.configure.bind(element.audioEngine);
+    element.audioEngine.configure = specs => {
+      window.audioConfigureCalls += 1;
+      configure(specs);
+    };
+    element.currentTime = 2500;
+    element.syncMedia(2500);
+  });
+  assert.equal(await page.evaluate(() => window.audioConfigureCalls), 1,
+    'Crossing a clip boundary configures newly available language audio once');
+  await player.evaluate(element => {
+    element.currentTime = 4500;
+    element.syncMedia(4500);
+  });
+  assert.equal(await page.evaluate(() => window.audioConfigureCalls), 1,
+    'Later clip boundaries reuse the configured audio engine');
+  assert.equal(await player.evaluate(element => element.packMediaReady), true,
+    'Already-downloaded active audio must not hold the story clock');
   currentAudioGate = new Promise(resolve => { releaseAudio = resolve; });
   const second = await browser.newPage();
   await second.goto(`${server.resolvedUrls.local[0]}__priority-test?lang=cy`);
