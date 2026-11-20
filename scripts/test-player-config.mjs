@@ -6,8 +6,36 @@ import {
   resolvePauseOnInteract,
   themeCss,
 } from '../src/core/config.ts';
-import { playerCopy } from '../src/core/locale.ts';
+import { playerCopy, resolvePlayerLanguage } from '../src/core/locale.ts';
 import { resolveUiMode } from '../src/core/ui-mode.ts';
+import { readDiveUrlState, writeDiveUrlState } from '../src/core/url-state.ts';
+
+const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
+const originalHistory = Object.getOwnPropertyDescriptor(globalThis, 'history');
+let replacement;
+Object.defineProperty(globalThis, 'location', { configurable: true, value: { href: 'https://example.org/publication?keep=yes' } });
+Object.defineProperty(globalThis, 'history', {
+  configurable: true,
+  value: { state: null, replaceState: (_state, _title, url) => { replacement = url.href; } },
+});
+try {
+  writeDiveUrlState({ timeMs: 12000, sceneId: 'second', lang: 'cy' });
+  assert.equal(replacement, 'https://example.org/publication?keep=yes&lang=cy');
+  globalThis.location.href = 'https://example.org/publication?t=5&scene=intro&lang=cy#details';
+  writeDiveUrlState({ timeMs: 12000, sceneId: 'second', lang: 'en' });
+  assert.equal(replacement, 'https://example.org/publication?t=5&scene=intro&lang=en#details');
+  replacement = undefined;
+  writeDiveUrlState({ lang: 'cy' });
+  assert.equal(replacement, undefined, 'Playback must not rewrite an unchanged URL');
+  assert.deepEqual(readDiveUrlState('?t=5&scene=intro&lang=cy', ''), {
+    timeMs: 5000, sceneId: 'intro', lang: 'cy',
+  });
+} finally {
+  if (originalLocation) Object.defineProperty(globalThis, 'location', originalLocation);
+  else delete globalThis.location;
+  if (originalHistory) Object.defineProperty(globalThis, 'history', originalHistory);
+  else delete globalThis.history;
+}
 
 const scene = (pauseOnInteract) => ({ id: 's', tool: 't', startTime: 0, endTime: 1, keyframes: [], overlays: [], pauseOnInteract });
 const story = (extra = {}) => ({ title: 'x', duration: 1, scenes: [], ...extra });
@@ -52,5 +80,10 @@ assert.equal(fr.pause, 'Pause (story)');
 assert.equal(fr.retry, 'Retry');
 assert.equal('bogus' in fr, false);
 assert.equal(playerCopy('cy', { cy: { play: 'A' } }, { cy: { play: 'B' } }).play, 'B');
+
+const languages = [{ code: 'en', label: 'English' }, { code: 'cy', label: 'Cymraeg' }];
+assert.equal(resolvePlayerLanguage(languages, null, 'cy'), 'cy');
+assert.equal(resolvePlayerLanguage(languages, 'en', 'cy'), 'en', 'Explicit language overrides the configured initial locale');
+assert.equal(resolvePlayerLanguage(languages, null, 'unsupported'), 'en', 'Unavailable preferred locales must use the existing fallback');
 
 console.log('player-config: ok');

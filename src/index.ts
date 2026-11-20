@@ -24,6 +24,7 @@ export type {
   AudioRole,
   UiMode,
   LanguageToggle,
+  SettingsLink,
 } from './core/types';
 export { parseAspectRatio, containSize, DEFAULT_ASPECT } from './core/aspect';
 export { parseVtt, cuesAtTime, captionTracksForLocale } from './core/captions';

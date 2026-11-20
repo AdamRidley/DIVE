@@ -47,20 +47,10 @@ export function writeDiveUrlState(state: DiveUrlState): void {
     return;
   }
   const url = new URL(location.href);
-  if (state.timeMs == null) {
-    url.searchParams.delete('t');
-  } else {
-    url.searchParams.set('t', String(Math.round(state.timeMs / 1000)));
-  }
-  if (state.sceneId) {
-    url.searchParams.set('scene', state.sceneId);
-  } else {
-    url.searchParams.delete('scene');
-  }
   if (state.lang) {
     url.searchParams.set('lang', state.lang);
   } else {
     url.searchParams.delete('lang');
   }
-  history.replaceState(history.state, '', url);
+  if (url.href !== location.href) history.replaceState(history.state, '', url);
 }

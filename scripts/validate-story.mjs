@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
+import { captionWarnings } from './caption-authoring.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, '..');
@@ -54,6 +55,17 @@ for (const file of files) {
       hasErrors = true;
     } else {
       console.log(`✅ ${file}`);
+      const tracks = typeof data.captions === 'string'
+        ? [{ src: data.captions }]
+        : Array.isArray(data.captions) && data.captions[0]?.text
+          ? [{ cues: data.captions }]
+          : [].concat(data.captions || []);
+      for (const track of tracks) {
+        for (const warning of captionWarnings(track.cues || [])) {
+          console.warn(`   Caption advisory (${track.srclang || 'und'}): ${warning}`);
+        }
+        if (track.src) console.warn(`   Caption advisory: review external track ${track.src} with the same two-line/reading-speed guidance.`);
+      }
     }
   } catch (err) {
     console.error(`❌ ${file}: ${err.message}`);

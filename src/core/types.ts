@@ -7,6 +7,8 @@ export interface Story {
   aspectRatio?: string;
   audio?: StoryAudio;
   captions?: StoryCaptions;
+  /** Default caption placement; element property/attribute and viewer selection override it. */
+  captionsBelow?: boolean;
   languages?: LanguageOption[];
   poster?: string;
   /**
@@ -15,9 +17,13 @@ export interface Story {
    * A scene `uiMode` overrides this.
    */
   uiMode?: UiMode;
+  showUiModeSetting?: boolean;
+  /** Show the localized Play/Pause label; when omitted, use the player theme. */
+  showPlayLabel?: boolean;
+  showCaptionLocationSetting?: boolean;
   /**
    * Where the language picker appears when `languages` has more than one entry.
-   * `auto` uses an inline toggle for exactly two languages and the settings menu otherwise.
+   * `auto` uses an inline toggle for exactly two languages and a header dropdown otherwise.
    */
   languageToggle?: LanguageToggle;
   /**
@@ -27,6 +33,8 @@ export interface Story {
   pauseOnInteract?: boolean;
   /** Player UI strings by language, e.g. `{ "fr": { "play": "Lire" } }`. Overrides built-in and configured text. */
   playerText?: PlayerText;
+  /** Links shown in player settings. Relative URLs are packaged with the story. */
+  settingsLinks?: SettingsLink[];
   assets?: StoryAsset[];
   dependencies?: string[];
   scenes: Scene[];
@@ -38,6 +46,14 @@ export type UiMode = 'autohide' | 'inset';
 export type LanguageToggle = 'auto' | 'inline' | 'menu' | 'none';
 
 export type LocalizedString = string | Record<string, string>;
+
+export interface SettingsLink {
+  label: LocalizedString;
+  href: LocalizedString;
+  /** Download instead of navigating; a string supplies a localized filename. */
+  download?: boolean | LocalizedString;
+  newTab?: boolean;
+}
 
 /** Language code → player UI string key → text. Missing keys fall back to English. */
 export type PlayerText = Record<string, Record<string, string>>;
@@ -98,6 +114,7 @@ export interface TimelineSection {
 
 export interface Scene {
   id: string;
+  label?: LocalizedString;
   tool: string; // Which adapter to load from the tool registry
   startTime: number; // in milliseconds
   endTime: number;
@@ -177,4 +194,3 @@ export interface NarrativeState {
   visualState: any; // The interpolated/active state for the visual
   activeOverlays: Overlay[];
 }
-

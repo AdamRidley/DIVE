@@ -11,6 +11,7 @@ const CENTRAL_SIG = 0x02014b50;
 const EOCD_SIG = 0x06054b50;
 const DEFLATE = 8;
 const STORE = 0;
+const MAX_DIVE_MANIFEST_SIZE = 1024 * 1024;
 
 function dosDateTime(date = new Date()) {
   const dosTime = (date.getSeconds() / 2) | (date.getMinutes() << 5) | (date.getHours() << 11);
@@ -93,6 +94,9 @@ function collectStringRefs(story) {
   };
 
   addShared(story.poster);
+  for (const link of story.settingsLinks || []) {
+    addLocalized(addShared, link.href);
+  }
   if (typeof story.audio === 'string') {
     addShared(story.audio);
   } else if (Array.isArray(story.audio)) {
@@ -240,16 +244,19 @@ function eocd(entries, centralSize, centralOffset) {
 async function main() {
   const args = process.argv.slice(2);
   if (args.length === 0 || args.includes('-h') || args.includes('--help')) {
-    console.log('Usage: node scripts/pack-dive.mjs <story.json> [-o out.dive]');
+    console.log('Usage: node scripts/pack-dive.mjs <story.json> [-o out.dive] [--format 1|2]');
     process.exit(args.length === 0 ? 1 : 0);
   }
 
   let storyPath = null;
   let outPath = null;
+  let format = 2;
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === '-o' || args[i] === '--output') {
       outPath = args[i + 1];
       i += 1;
+    } else if (args[i] === '--format') {
+      format = Number(args[++i]);
     } else if (!args[i].startsWith('-')) {
       storyPath = args[i];
     }
@@ -258,6 +265,7 @@ async function main() {
   if (!storyPath) {
     throw new Error('story.json path is required');
   }
+  if (format !== 1 && format !== 2) throw new Error('--format must be 1 or 2');
 
   const absStory = resolve(process.cwd(), storyPath);
   const storyDir = dirname(absStory);
@@ -325,6 +333,13 @@ async function main() {
     }
   }
 
+  const isAudio = (item) => /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(item.packName);
+  if (format === 2) {
+    const first = sceneIds[0];
+    const rank = (item) => item.bucket === 'story' ? 0
+      : isAudio(item) ? 3 : item.bucket === 'shared' ? 1 : item.bucket === first ? 2 : 4;
+    planned.sort((a, b) => rank(a) - rank(b));
+  }
   const languages = (story.languages || []).map((item) => item.code).filter(Boolean);
   const defaultLanguage = (story.languages || []).find((item) => item.default)?.code
     || languages[0]
@@ -332,6 +347,8 @@ async function main() {
 
   const stamp = dosDateTime();
   const headerSize = (name) => 30 + Buffer.byteLength(name, 'utf8');
+  const maxManifestSize = format === 1 ? 64 * 1024 : MAX_DIVE_MANIFEST_SIZE;
+  const maxManifestDataSize = maxManifestSize - headerSize('dive.json');
 
   const padManifest = (manifest, size) => {
     const text = `${JSON.stringify(manifest, null, 2)}\n`;
@@ -347,7 +364,7 @@ async function main() {
   let manifest = null;
   let manifestRaw = null;
 
-  while (diveJsonSize <= 64 * 1024) {
+  while (diveJsonSize <= maxManifestDataSize) {
     built = [];
     let cursor = headerSize('dive.json') + diveJsonSize;
     for (const item of planned) {
@@ -374,23 +391,34 @@ async function main() {
 
     const firstScene = sceneMeta.find((scene) => scene.length > 0);
     manifest = {
-      version: 1,
+      version: format,
       story: 'story.json',
       defaultLanguage,
       languages: languages.length ? languages : [defaultLanguage],
       shared: built.filter((item) => item.bucket === 'shared').map((item) => item.packName),
-      prefixEnd: firstScene ? firstScene.offset : cursor,
+      prefixEnd: format === 2
+        ? built.filter(item => item.bucket === 'story' || (item.bucket === 'shared' && !isAudio(item)))
+          .reduce((end, item) => Math.max(end, item.offset + headerSize(item.packName) + item.comp.length), 0)
+        : firstScene ? firstScene.offset : cursor,
       scenes: sceneMeta,
+      ...(format === 2 ? {
+        files: Object.fromEntries(built.map(item => [item.packName, {
+          offset: item.offset,
+          length: headerSize(item.packName) + item.comp.length,
+          ...(isAudio(item) ? { audio: true } : {}),
+        }])),
+      } : {}),
     };
     manifestRaw = padManifest(manifest, diveJsonSize);
     if (manifestRaw) {
       break;
     }
-    diveJsonSize *= 2;
+    if (diveJsonSize === maxManifestDataSize) break;
+    diveJsonSize = Math.min(diveJsonSize * 2, maxManifestDataSize);
   }
 
   if (!manifestRaw || !manifest) {
-    throw new Error('dive.json is too large to pad into a stable prefix');
+    throw new Error(`dive.json exceeds the ${maxManifestSize / 1024} KiB manifest limit`);
   }
 
   const manifestEntry = {

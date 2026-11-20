@@ -27,8 +27,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
       - name: Run CI tests
         run: npm run test:ci
 
+      - name: Run browser controls tests
+        run: npm run test:controls
+
       - name: Docker build smoke test (example image)
         run: docker build -f examples/the_wealth_and_health_of_nations/Dockerfile -t dive-example-ci .
+
+      - name: Test prioritized pack startup and audio readiness
+        run: npm run test:pack-priority
