@@ -60,9 +60,10 @@ Listen on `<dive-video>` before it upgrades to observe loading. The bubbling,
 composed `dive-story-ready` event carries `{ src }` and fires once after story
 initialization and readiness of the initial scene (if there is one).
 `dive-load-error` carries `{ src, phase, sceneId, error }`; `phase` is `story`
-for a source/setup failure (with `sceneId: null`), or `scene` for an active
-scene failure, including later scenes. The player shows an accessible alert
-and continues to offer Retry for scene failures.
+for a source/setup failure (with `sceneId: null`), `scene` for an active
+scene failure, including later scenes, or `media` for required packed audio.
+The player shows an accessible alert and offers Retry for scene and packed-audio
+failures.
 
 Story JSON can include `aspectRatio` (default `9:16`), `audio` (URL or clip objects), and `captions` (WebVTT URL or `{ startTime, endTime, text }` cues). The default height follows available width and the story aspect ratio, adding inset controls and below-video captions, capped at `100dvh`. The picture is contained without cropping at that cap. Explicit CSS `height` overrides automatic sizing and its viewport cap; `width`, `min-height` and `max-height` also remain available. Forced boxes and fullscreen may letterbox.
 
