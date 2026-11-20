@@ -6,7 +6,7 @@ const STORAGE_KEY = 'dive-video.lang';
 const PLAYER_COPY: Record<string, Record<PlayerTextKey, string>> = {
   en: {
     loadingStory: 'Loading Story...', loadingScene: 'Loading scene', end: 'End', replay: 'Replay',
-    sceneError: 'This scene could not be loaded.', retry: 'Retry',
+    storyError: 'This story could not be loaded.', sceneError: 'This scene could not be loaded.', retry: 'Retry',
     chapters: 'Chapters', language: 'Language', settings: 'Settings', play: 'Play', pause: 'Pause',
     mute: 'Mute', unmute: 'Unmute', hideCaptions: 'Hide captions', showCaptions: 'Show captions',
     fullscreen: 'Toggle Fullscreen', captions: 'Captions', audioDescription: 'Audio description',
@@ -19,7 +19,7 @@ const PLAYER_COPY: Record<string, Record<PlayerTextKey, string>> = {
   },
   cy: {
     loadingStory: 'Llwytho’r Stori...', loadingScene: 'Llwytho golygfa', end: 'Diwedd', replay: 'Chwarae eto',
-    sceneError: 'Nid oedd modd llwytho’r olygfa hon.', retry: 'Rhoi cynnig arall arni',
+    storyError: 'Nid oedd modd llwytho’r stori hon.', sceneError: 'Nid oedd modd llwytho’r olygfa hon.', retry: 'Rhoi cynnig arall arni',
     chapters: 'Penodau', language: 'Iaith', settings: 'Gosodiadau', play: 'Chwarae', pause: 'Oedi',
     mute: 'Tewi', unmute: 'Dad-dewi', hideCaptions: 'Cuddio isdeitlau', showCaptions: 'Dangos isdeitlau',
     fullscreen: 'Newid sgrin lawn', captions: 'Isdeitlau', audioDescription: 'Disgrifiad sain',
@@ -33,7 +33,7 @@ const PLAYER_COPY: Record<string, Record<PlayerTextKey, string>> = {
 };
 
 export type PlayerTextKey =
-  | 'loadingStory' | 'loadingScene' | 'end' | 'replay' | 'sceneError' | 'retry'
+  | 'loadingStory' | 'loadingScene' | 'end' | 'replay' | 'storyError' | 'sceneError' | 'retry'
   | 'chapters' | 'language' | 'settings' | 'play' | 'pause' | 'mute' | 'unmute'
   | 'hideCaptions' | 'showCaptions' | 'fullscreen' | 'captions' | 'audioDescription'
   | 'data' | 'dataView' | 'dataLoading' | 'progress' | 'volume' | 'playerHelp'

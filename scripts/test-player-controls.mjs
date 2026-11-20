@@ -863,6 +863,26 @@ try {
   await page.waitForFunction(() => document.querySelector('dive-video').sceneReady);
   assert.equal(await player.evaluate(element => element.isUIHidden), false,
     'A scene transition must also preserve visible controls');
+  await page.addInitScript(() => {
+    window.diveLoadEvents = [];
+    for (const type of ['dive-story-ready', 'dive-load-error']) {
+      document.addEventListener(type, event => {
+        window.diveLoadEvents.push({ type, src: event.detail.src, phase: event.detail.phase });
+      });
+    }
+  });
+  await page.goto(`${server.resolvedUrls.local[0]}__controls-test`);
+  await page.waitForFunction(() => window.diveLoadEvents.length > 0);
+  assert.deepEqual(await page.evaluate(() => window.diveLoadEvents), [
+    { type: 'dive-story-ready', src: `${server.resolvedUrls.local[0]}__controls-story.json`, phase: undefined },
+  ]);
+  await page.route('**/__controls-story.json', route => route.fulfill({ status: 404 }));
+  await page.reload();
+  await page.waitForFunction(() => window.diveLoadEvents.length > 0);
+  assert.deepEqual(await page.evaluate(() => window.diveLoadEvents), [
+    { type: 'dive-load-error', src: `${server.resolvedUrls.local[0]}__controls-story.json`, phase: 'story' },
+  ]);
+  assert.match(await player.getByRole('alert').textContent(), /story could not be loaded/i);
   assert.deepEqual([...errors], [], 'Control interactions must not throw browser errors');
   console.log('Player controls: styles, languages, scene labels, mouse-centred tooltips, aligned markers, stable single-line captions, seeking and sizing passed.');
 } finally {

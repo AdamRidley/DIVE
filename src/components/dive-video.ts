@@ -79,6 +79,8 @@ export class DiveVideo extends LitElement {
   @state() private hasStarted = false;
   @state() private sceneReady = true;
   @state() private sceneError = false;
+  @state() private storyError = false;
+  private storyReadyEmitted = false;
   @state() private toolFading = false;
   @state() private compactControls = false;
   @state() private viewerUiMode: ReturnType<typeof parseUiMode> = null;
@@ -1309,7 +1311,7 @@ export class DiveVideo extends LitElement {
 
         // Handle Scene / Adapter Loading
         if (state.scene && state.scene.id !== this.activeToolId) {
-          this.switchTool(state.scene);
+          this.activateScene(state.scene);
         }
 
         // Pass visual state to active adapter.
@@ -1335,10 +1337,31 @@ export class DiveVideo extends LitElement {
       const startTime = urlState.timeMs ?? startScene?.startTime ?? 0;
       this.sequencer.seek(startTime);
       this.notifyAdapterPlaybackState();
+      if (!this.activeToolId) this.emitStoryReady();
       
     } catch (e) {
-      console.error("Failed to load DIVE story:", e);
+      this.storyError = true;
+      if (!this.story) {
+        this.playerLang = resolvePlayerLanguage(this.storyLanguages(), readDiveUrlState().lang, playerDefaults().language);
+      }
+      this.emitLoadError('story', e);
     }
+  }
+
+  private emitStoryReady() {
+    if (this.storyReadyEmitted || this.storyError) return;
+    this.storyReadyEmitted = true;
+    this.dispatchEvent(new CustomEvent('dive-story-ready', {
+      bubbles: true, composed: true, detail: { src: this.storyBaseUrl },
+    }));
+  }
+
+  private emitLoadError(phase: 'story' | 'scene', error: unknown) {
+    console.error(`Failed to load DIVE ${phase}:`, error);
+    this.dispatchEvent(new CustomEvent('dive-load-error', {
+      bubbles: true, composed: true,
+      detail: { src: this.storyBaseUrl, phase, sceneId: phase === 'scene' ? this.activeToolId : null, error },
+    }));
   }
 
   private async ensureScenePacked(scene: Story['scenes'][0]): Promise<Story['scenes'][0]> {
@@ -1365,6 +1388,14 @@ export class DiveVideo extends LitElement {
       }
     }
     return null;
+  }
+
+  private activateScene(scene: Story['scenes'][0]) {
+    const switching = this.switchTool(scene);
+    const version = this.toolSwitchVersion;
+    void switching.catch(error => {
+      if (version === this.toolSwitchVersion) this.failTool(error);
+    });
   }
 
   private async switchTool(scene: Story['scenes'][0]) {
@@ -1524,12 +1555,13 @@ export class DiveVideo extends LitElement {
   }
 
   private failTool(error: unknown) {
-    console.error('DIVE scene is unavailable:', error);
+    if (this.sceneError) return;
     this.sceneError = true;
     this.sceneReady = false;
     this.toolFading = false;
     this.syncMedia(this.currentTime);
     this.resetUIHideTimer();
+    this.emitLoadError('scene', error);
   }
 
   private retryTool = () => {
@@ -1538,7 +1570,7 @@ export class DiveVideo extends LitElement {
     const prepared = this.preparedTools.get(scene.id);
     if (prepared) this.disposePreparedTool(prepared);
     this.preparedTools.delete(scene.id);
-    void this.switchTool(scene);
+    this.activateScene(scene);
   }
 
   private markToolReady() {
@@ -1551,6 +1583,7 @@ export class DiveVideo extends LitElement {
     } else {
       this.notifyAdapterPlaybackState();
     }
+    this.emitStoryReady();
   }
 
   private beginPlayback() {
@@ -2176,6 +2209,9 @@ export class DiveVideo extends LitElement {
 
   render() {
     const ui = playerCopy(this.playerLang, playerDefaults().playerText, this.story?.playerText);
+    if (this.storyError) {
+      return html`<div class="scene-error" role="alert" lang=${this.playerLang}>${ui.storyError}</div>`;
+    }
     if (!this.story) {
       return html`<div>${ui.loadingStory}</div>`;
     }
