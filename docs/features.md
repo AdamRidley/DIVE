@@ -18,6 +18,7 @@ Status: **proposed** unless marked done. Sign off a round by ID (e.g. “do F3, 
 | F6 | Pause + spinner if the current packed scene is not ready |
 | F7 | Prefetch next scene (Range for `.dive`, `<link rel=prefetch>` for folder tools) |
 | F8/F9 | **`.dive` ordered ZIP** + prefix play + Range-skip via `dive.json` |
+| F8a | Format 2 per-file ranges, first-scene visuals before audio, selected-language playback gating, other narration backfilled last |
 | F10 | JSON Schema + `npm run validate:story` |
 | F11 | Story `languages`, header dropdown or inline toggle (`languageToggle`), one locale for UI/captions/VO, `DIVE_LANG`, `playerText` for UI strings |
 | F13 | Audio description toggle (`role` / caption `kind: descriptions`) |
@@ -42,6 +43,7 @@ Status: **proposed** unless marked done. Sign off a round by ID (e.g. “do F3, 
 | F12 | Separate music vs voice volumes; ducking | One mute is blunt |
 | F14 | Transcript panel (searchable, click-to-seek) | Complements captions |
 | F15 | Sequencer **keyframe interpolation** (spec Option 2) | Adapters tween today; cross-adapter motion is stepped |
+| F26 | Optional uncompressed (ZIP STORE), seekable audio streaming from pack ranges | Start long narration without downloading and inflating its entire compressed entry; requires a media delivery/seek strategy, not just changing ZIP compression |
 
 ### Presentation
 

@@ -5,7 +5,7 @@ const STORAGE_KEY = 'dive-video.lang';
 
 const PLAYER_COPY: Record<string, Record<PlayerTextKey, string>> = {
   en: {
-    loadingStory: 'Loading Story...', loadingScene: 'Loading scene', end: 'End', replay: 'Replay',
+    loadingStory: 'Loading Story...', loadingScene: 'Loading scene', loadingAudio: 'Loading audio', audioError: 'Audio could not be loaded.', end: 'End', replay: 'Replay',
     storyError: 'This story could not be loaded.', sceneError: 'This scene could not be loaded.', retry: 'Retry',
     chapters: 'Chapters', language: 'Language', settings: 'Settings', play: 'Play', pause: 'Pause',
     mute: 'Mute', unmute: 'Unmute', hideCaptions: 'Hide captions', showCaptions: 'Show captions',
@@ -18,7 +18,7 @@ const PLAYER_COPY: Record<string, Record<PlayerTextKey, string>> = {
     captionLocation: 'Caption location', captionsOverlaid: 'Overlaid', captionsBelow: 'Below',
   },
   cy: {
-    loadingStory: 'Llwytho’r Stori...', loadingScene: 'Llwytho golygfa', end: 'Diwedd', replay: 'Chwarae eto',
+    loadingStory: 'Llwytho’r Stori...', loadingScene: 'Llwytho golygfa', loadingAudio: 'Llwytho sain', audioError: 'Nid oedd modd llwytho’r sain.', end: 'Diwedd', replay: 'Chwarae eto',
     storyError: 'Nid oedd modd llwytho’r stori hon.', sceneError: 'Nid oedd modd llwytho’r olygfa hon.', retry: 'Rhoi cynnig arall arni',
     chapters: 'Penodau', language: 'Iaith', settings: 'Gosodiadau', play: 'Chwarae', pause: 'Oedi',
     mute: 'Tewi', unmute: 'Dad-dewi', hideCaptions: 'Cuddio isdeitlau', showCaptions: 'Dangos isdeitlau',
@@ -33,7 +33,7 @@ const PLAYER_COPY: Record<string, Record<PlayerTextKey, string>> = {
 };
 
 export type PlayerTextKey =
-  | 'loadingStory' | 'loadingScene' | 'end' | 'replay' | 'storyError' | 'sceneError' | 'retry'
+  | 'loadingStory' | 'loadingScene' | 'loadingAudio' | 'audioError' | 'end' | 'replay' | 'storyError' | 'sceneError' | 'retry'
   | 'chapters' | 'language' | 'settings' | 'play' | 'pause' | 'mute' | 'unmute'
   | 'hideCaptions' | 'showCaptions' | 'fullscreen' | 'captions' | 'audioDescription'
   | 'data' | 'dataView' | 'dataLoading' | 'progress' | 'volume' | 'playerHelp'

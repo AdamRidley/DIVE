@@ -27,6 +27,7 @@
     "test": "npm run typecheck",
     "test:controls": "node scripts/test-player-controls.mjs",
     "test:caption-authoring": "node scripts/test-caption-authoring.mjs",
+    "test:pack-priority": "node scripts/test-dive-priority.mjs",
     "dev": "vite",
     "build": "vite build && tsc -p tsconfig.dts.json",
     "build:example": "vite build -c examples/the_wealth_and_health_of_nations/vite.config.example.mjs",

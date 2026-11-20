@@ -79,6 +79,10 @@ export class DiveVideo extends LitElement {
   @state() private hasStarted = false;
   @state() private sceneReady = true;
   @state() private sceneError = false;
+  @state() private packMediaReady = true;
+  @state() private packMediaError = false;
+  private packedAudioKey = '';
+  private packedAudioVersion = 0;
   @state() private storyError = false;
   private storyReadyEmitted = false;
   @state() private toolFading = false;
@@ -453,6 +457,12 @@ export class DiveVideo extends LitElement {
       border-top-color: #fff;
       border-radius: 50%;
       animation: dive-spin 0.8s linear infinite;
+    }
+    .buffer-spinner.media-buffer {
+      inset: 12px 12px auto auto;
+      padding: 8px;
+      border-radius: 50%;
+      background: var(--dive-chrome-bg, #111214);
     }
     .scene-error {
       position: absolute;
@@ -1255,11 +1265,15 @@ export class DiveVideo extends LitElement {
       this.viewerCaptionsBelow = null;
       this.storyBaseUrl = new URL(url, document.baseURI).href;
       this.packSession = null;
+      this.packedAudioKey = '';
+      this.packedAudioVersion++;
+      this.packMediaReady = true;
+      this.packMediaError = false;
       const urlState = readDiveUrlState();
 
       if (looksLikeDiveUrl(url)) {
         this.sceneReady = false;
-        const session = await openDivePack(this.storyBaseUrl, { sceneId: urlState.sceneId });
+        const session = await openDivePack(this.storyBaseUrl, { sceneId: urlState.sceneId, timeMs: urlState.timeMs });
         this.packSession = session;
         session.refreshStory();
         this.story = session.story;
@@ -1284,6 +1298,11 @@ export class DiveVideo extends LitElement {
       this.playerLang = resolvePlayerLanguage(this.storyLanguages(), urlState.lang,
         validPending ? pending : playerDefaults().language);
       this.pendingLanguage = null;
+      const startScene = urlState.sceneId
+        ? this.story?.scenes.find((scene) => scene.id === urlState.sceneId)
+        : undefined;
+      const startTime = urlState.timeMs ?? startScene?.startTime ?? 0;
+      this.currentTime = startTime;
       this.validateSettingsLinks();
       this.allAudioSpecs = this.story ? collectStoryAudio(this.story, this.storyBaseUrl) : [];
       this.applyLocaleMedia();
@@ -1331,10 +1350,6 @@ export class DiveVideo extends LitElement {
       // Render and pause on the first frame so the canvas is not blank before Play.
       await this.updateComplete;
       this.lastVisualState = null;
-      const startScene = urlState.sceneId
-        ? this.story?.scenes.find((scene) => scene.id === urlState.sceneId)
-        : undefined;
-      const startTime = urlState.timeMs ?? startScene?.startTime ?? 0;
       this.sequencer.seek(startTime);
       this.notifyAdapterPlaybackState();
       if (!this.activeToolId) this.emitStoryReady();
@@ -1351,12 +1366,13 @@ export class DiveVideo extends LitElement {
   private emitStoryReady() {
     if (this.storyReadyEmitted || this.storyError) return;
     this.storyReadyEmitted = true;
+    this.packSession?.backfill(this.playerLang, this.currentTime, this.descriptionsEnabled);
     this.dispatchEvent(new CustomEvent('dive-story-ready', {
       bubbles: true, composed: true, detail: { src: this.storyBaseUrl },
     }));
   }
 
-  private emitLoadError(phase: 'story' | 'scene', error: unknown) {
+  private emitLoadError(phase: 'story' | 'scene' | 'media', error: unknown) {
     console.error(`Failed to load DIVE ${phase}:`, error);
     this.dispatchEvent(new CustomEvent('dive-load-error', {
       bubbles: true, composed: true,
@@ -1614,16 +1630,17 @@ export class DiveVideo extends LitElement {
 
   private notifyAdapterPlaybackState() {
     if (this.activeAdapter?.setPlaybackState) {
-      this.activeAdapter.setPlaybackState(this.isPlaying && this.sceneReady, this.currentTime);
+      this.activeAdapter.setPlaybackState(this.isPlaying && this.sceneReady && this.packMediaReady, this.currentTime);
     }
     this.syncMedia(this.currentTime);
   }
 
   private syncMedia(timeMs: number) {
+    this.ensurePackedAudio(timeMs);
     const hard = this.audioHardSeek;
     this.audioHardSeek = false;
-    this.audioEngine.sync(timeMs, this.isPlaying && this.sceneReady, { hard });
-    this.sequencer?.hold(this.isPlaying && (!this.sceneReady || this.audioEngine.isHoldingStory));
+    this.audioEngine.sync(timeMs, this.isPlaying && this.sceneReady && this.packMediaReady, { hard });
+    this.sequencer?.hold(this.isPlaying && (!this.sceneReady || !this.packMediaReady || this.audioEngine.isHoldingStory));
     const tracks = captionTracksForLocale(this.captionTracks, this.playerLang, {
       captions: this.captionsEnabled,
       descriptions: this.descriptionsEnabled,
@@ -1767,7 +1784,9 @@ export class DiveVideo extends LitElement {
   }
 
   private applyLocaleMedia() {
-    this.audioEngine.configure(filterAudioClips(this.allAudioSpecs, this.playerLang, {
+    const available = this.packSession?.manifest?.version === 2
+      ? this.packSession.availableAudio() : this.allAudioSpecs;
+    this.audioEngine.configure(filterAudioClips(available, this.playerLang, {
       descriptions: this.descriptionsEnabled,
     }));
     this.audioEngine.setMuted(this.isMuted);
@@ -1775,6 +1794,34 @@ export class DiveVideo extends LitElement {
     this.audioHardSeek = true;
     this.syncMedia(this.currentTime);
   }
+
+  private ensurePackedAudio(timeMs: number) {
+    const session = this.packSession;
+    if (session?.manifest?.version !== 2) return;
+    const names = session.audioFiles(this.playerLang, timeMs, this.descriptionsEnabled);
+    const key = JSON.stringify([this.playerLang, this.descriptionsEnabled, names]);
+    if (key === this.packedAudioKey) return;
+    this.packedAudioKey = key;
+    const version = ++this.packedAudioVersion;
+    this.packMediaReady = false;
+    this.packMediaError = false;
+    this.activeAdapter?.setPlaybackState?.(false, timeMs);
+    void session.ensureFiles(names).then(() => {
+      if (version !== this.packedAudioVersion || session !== this.packSession || !this.isConnected) return;
+      this.packMediaReady = true;
+      this.applyLocaleMedia();
+      this.notifyAdapterPlaybackState();
+    }).catch(error => {
+      if (version !== this.packedAudioVersion || session !== this.packSession) return;
+      this.packMediaError = true;
+      this.emitLoadError('media', error);
+    });
+  }
+
+  private retryPackedAudio = () => {
+    this.packedAudioKey = '';
+    this.syncMedia(this.currentTime);
+  };
 
   setLanguage(code: string) {
     if (!this.story) {
@@ -2272,9 +2319,12 @@ export class DiveVideo extends LitElement {
           <div id="canvas-container" class="${this.toolFading ? 'fading' : ''}" part="canvas"></div>
           ${showCatcher ? html`<div class="play-catcher" @pointerdown=${this.handlePlayCatcher}></div>` : ''}
           ${poster ? html`<img class="poster" part="poster" src="${poster}" alt="" />` : ''}
-          ${this.sceneError
+          ${this.packMediaError
+            ? html`<div class="scene-error" role="alert">${ui.audioError}<button @click=${this.retryPackedAudio}>${ui.retry}</button></div>`
+            : this.sceneError
             ? html`<div class="scene-error" role="alert">${ui.sceneError}<button @click=${this.retryTool}>${ui.retry}</button></div>`
-            : this.sceneReady ? '' : html`<div class="buffer-spinner" part="buffer" aria-label=${ui.loadingScene}></div>`}
+            : !this.sceneReady ? html`<div class="buffer-spinner" part="buffer" aria-label=${ui.loadingScene}></div>`
+            : !this.packMediaReady ? html`<div class="buffer-spinner media-buffer" part="buffer" role="status" aria-label=${ui.loadingAudio}></div>` : ''}
           
           <!-- Overlay Layer -->
           <div class="overlays" part="overlays">

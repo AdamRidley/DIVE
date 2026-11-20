@@ -38,3 +38,6 @@ jobs:
 
       - name: Docker build smoke test (example image)
         run: docker build -f examples/the_wealth_and_health_of_nations/Dockerfile -t dive-example-ci .
+
+      - name: Test prioritized pack startup and audio readiness
+        run: npm run test:pack-priority

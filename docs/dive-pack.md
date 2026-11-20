@@ -4,12 +4,18 @@ A `.dive` file is an **ordered ZIP** (deflate). `unzip wealth.dive` works. Brotl
 
 ## Layout
 
-Members are written in this order:
+New packs use manifest **version 2**. Members are written in this order:
 
 1. `dive.json` — tiny TOC (first zip entry, not a custom header)
 2. `story.json`
-3. Video-wide media: soundtrack, captions/VTT, poster, local `settingsLinks` resources (all languages), story `assets` / `dependencies`
-4. Each scene’s tool, data, overlay media, and `dependencies`, in timeline order
+3. Non-audio shared dependencies: captions/VTT, poster, local `settingsLinks` resources (all languages), shared assets/scripts
+4. First scene's non-audio tool, data, overlays and dependencies
+5. Audio entries, including soundtrack and all narration languages
+6. Remaining scenes' non-audio files, in timeline order
+
+This places the first scene before large audio files even on a sequential-only host.
+Audio remains compressed: each audio entry must finish downloading and inflating
+before it can play. Uncompressed, seekable audio streaming is a future feature.
 
 Absolute `http(s):` and `data:` refs stay outside the pack.
 Settings links support relative resources and HTTP(S) URLs, not `data:` URLs.
@@ -24,6 +30,9 @@ npm run pack:dive -- public/story.json -o public/story.dive
 npm run pack:dive -- examples/the_wealth_and_health_of_nations/story.json -o dist-example/wealth.dive
 ```
 
+For an older player, add `--format 1`. Version 2 requires a player that supports
+the per-file index described below; existing version 1 packs still work.
+
 Missing local files are skipped with a warning. Remote CDN imports (e.g. D3 on jsDelivr) are left as-is.
 
 ## Play
@@ -35,10 +44,17 @@ Missing local files are skipped with a warning. Remote CDN imports (e.g. D3 on j
 The player does **not** download the whole file first.
 
 1. `Range` the first bytes to read `dive.json`
-2. `Range` `[0, prefixEnd)` for `story.json` + video-wide audio/captions/data
-3. `Range` the current scene’s `offset`/`length` — so `?scene=phase-3` (or a seek to that scene) can skip scenes 1–2
-4. Backfill skipped scenes in the background
-5. Mount and initialize the next scene in a hidden, full-size container while the
+2. Read `story.json` using its indexed range
+3. Fetch non-audio shared dependencies and the requested scene's individual files;
+   `?scene=phase-3` or `?t=...` can skip other scenes and all audio
+4. Show the ready tool immediately. Fetch audio active at the current time in the
+   selected language (plus music); hold playback/clock until it is available.
+   A small audio-loading indicator leaves the visualization visible. Language
+   changes and seeks request newly needed audio immediately.
+5. Backfill all other files, then other-language narration last, even if never selected.
+   Identical concurrent range requests share one download. Media failures emit
+   `dive-load-error` with `phase: "media"` and offer Retry.
+6. Mount and initialize the next scene in a hidden, full-size container while the
    current scene plays. Its data, scripts and `DIVE_READY` handshake complete before
    it is shown. The same iframe is revealed at the transition, without reloading it.
 
@@ -68,15 +84,32 @@ arrive, at which point their dependency maps are refreshed.
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "story": "story.json",
   "defaultLanguage": "en",
   "languages": ["en", "cy"],
   "shared": ["voice-en.mp3", "captions-en.vtt"],
+  "files": {
+    "story.json": { "offset": 4135, "length": 700 },
+    "captions-en.vtt": { "offset": 4835, "length": 200 },
+    "tools/a.html": { "offset": 5035, "length": 84000 },
+    "voice-en.mp3": { "offset": 89035, "length": 3000000, "audio": true }
+  },
   "scenes": [
-    { "id": "phase-1", "files": ["tools/a.html"], "offset": 1200, "length": 84000 }
+    { "id": "phase-1", "files": ["tools/a.html"], "offset": 5035, "length": 84000 }
   ]
 }
 ```
 
-`offset` / `length` are byte ranges in the `.dive` file. The player uses them for HTTP `Range` so a seek or `?scene=` can skip earlier scene tools. Video-wide media in `shared` still comes first — that is required for any start language.
+`files` indexes every payload entry, including `story.json` and shared assets;
+`dive.json` itself is read from the first ZIP local header. Offsets are absolute,
+and lengths include the ZIP local header, filename/extra fields and compressed
+payload, not central directory records. Ranges do not overlap.
+`audio: true` excludes an entry from visual startup. Scene `files` and `shared`
+retain logical ownership, regardless of physical ordering.
+
+Version 2 uses individual file ranges, not scene aggregate ranges (which may
+span intervening entries after audio reordering). `prefixEnd` ends after metadata
+and non-audio shared files. Version 1 retains the original contiguous shared-media
+prefix and scene-group ranges. On a non-range host, the player consumes one stream
+and displays the first scene once its dependencies arrive, without awaiting audio.
