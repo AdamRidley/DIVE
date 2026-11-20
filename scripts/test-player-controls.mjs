@@ -33,7 +33,7 @@ const story = {
     { kind: 'descriptions', cues: [{ startTime: 0, endTime: 60000, text: 'Description test' }] },
   ],
   timelineSections: [
-    { startTime: 0, endTime: 30000, label: { en: 'First chapter', cy: 'Pennod gyntaf' } },
+    { startTime: 0, endTime: 30000, label: { en: 'First chapter', cy: 'Pennod gyntaf' }, color: '#556677' },
     { startTime: 30000, endTime: 60000, label: { en: 'Second chapter', cy: 'Ail bennod' } },
   ],
   scenes: [{
@@ -114,6 +114,28 @@ try {
   assert.equal(await captions.locator('rect').count(), 0, 'Enabled CC uses the filled icon');
   await captions.press('Enter');
   assert.equal(await captions.getAttribute('aria-pressed'), 'false', 'Keyboard toggling turns captions off');
+  assert.deepEqual(await page.locator('dive-video .section-band').evaluateAll(elements =>
+    elements.map(element => getComputedStyle(element).backgroundColor)),
+  ['rgb(85, 102, 119)', 'rgb(63, 63, 63)'],
+  'Unconfigured section backgrounds are neutral grey while authored section colors are preserved');
+  assert.equal(await page.locator('dive-video .progress').evaluate(element =>
+    getComputedStyle(element).backgroundColor),
+  'rgb(240, 95, 95)', 'The default played portion uses a solid red');
+  await page.locator('dive-video').evaluate(element => {
+    element.style.setProperty('--dive-section-bg', '#273c45');
+    element.style.setProperty('--dive-progress-color', '#75b56f');
+  });
+  assert.deepEqual(await page.locator('dive-video .section-band').evaluateAll(elements =>
+    elements.map(element => getComputedStyle(element).backgroundColor)),
+  ['rgb(39, 60, 69)', 'rgb(39, 60, 69)'],
+  'Host section background overrides take precedence over story colors');
+  assert.equal(await page.locator('dive-video .progress').evaluate(element =>
+    getComputedStyle(element).backgroundColor),
+  'rgb(117, 181, 111)', 'Host progress colors override the generic red default');
+  await page.locator('dive-video').evaluate(element => {
+    element.style.removeProperty('--dive-section-bg');
+    element.style.removeProperty('--dive-progress-color');
+  });
   assert.ok(await page.locator('dive-video .section-band').first().evaluate(element =>
     getComputedStyle(element).borderRightColor === 'rgb(255, 255, 255)'),
   'Timeline section boundaries must stay solid white');
