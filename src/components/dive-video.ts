@@ -26,15 +26,6 @@ export function registerTool(name: string, adapterClass: new () => IAdapter) {
   toolRegistry[name] = adapterClass;
 }
 
-const timelineSectionPalette = [
-  'rgba(92, 153, 255, 0.35)',
-  'rgba(255, 170, 83, 0.35)',
-  'rgba(122, 211, 124, 0.35)',
-  'rgba(242, 118, 168, 0.35)',
-  'rgba(172, 149, 255, 0.35)',
-  'rgba(102, 214, 196, 0.35)',
-];
-
 interface PreparedTool {
   container: HTMLElement;
   adapter: IAdapter | null;
@@ -841,9 +832,7 @@ export class DiveVideo extends LitElement {
       position: absolute;
       inset: 0;
       border-radius: inherit;
-      background: var(--dive-progress-fill, linear-gradient(90deg,
-        color-mix(in srgb, var(--dive-progress-color, var(--dive-progress, var(--dive-accent, #888))) 55%, transparent),
-        var(--dive-progress-color, var(--dive-progress, var(--dive-accent, #888)))));
+      background: var(--dive-progress-fill, var(--dive-progress-color, var(--dive-progress, var(--dive-accent, #f05f5f))));
       clip-path: inset(0 calc(100% - var(--progress)) 0 0);
       pointer-events: none;
       z-index: 1;
@@ -2519,7 +2508,7 @@ export class DiveVideo extends LitElement {
           ${timelineSections.map((section, index) => {
             const startPercent = (section.startTime / duration) * 100;
             const widthPercent = ((section.endTime - section.startTime) / duration) * 100;
-            const color = section.color || timelineSectionPalette[index % timelineSectionPalette.length];
+            const color = section.color || 'var(--dive-scrubber-bg, #3f3f3f)';
             const showLabel = widthPercent >= 8;
 
             return html`

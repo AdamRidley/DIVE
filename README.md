@@ -153,7 +153,7 @@ dive-video {
   --dive-chrome-fg: #fff;           /* icons and chrome text */
   --dive-stage-bg: #f4f4f4;
   --dive-scrubber-bg: #3f3f3f;
-  --dive-progress: rgba(10, 124, 107, 0.55); /* defaults to the accent at 55% */
+  --dive-progress: #0a7c6b; /* played-strip override; defaults to muted red */
   --dive-drawer-bg: rgba(10, 10, 12, 0.88);
   --dive-button-bg: #444;
   --dive-button-hover-bg: #666;
@@ -196,10 +196,14 @@ configure({
 ```
 
 These variables also work in page CSS, which wins over configured defaults.
+The generic timeline defaults to neutral grey section bands and a solid muted red
+played strip. Authored section colors remain in effect unless the host sets
+`--dive-section-bg` to use one background color throughout.
 `--dive-play-button-order` and `--dive-time-display-order` optionally change visual
 ordering (both default to `0`). The `play-button` and `time-display` CSS parts remain
 available. `--dive-progress-color` overrides the timeline played-strip colour,
-falling back to `--dive-progress` and then the accent.
+falling back to `--dive-progress`, then `--dive-accent`, and finally muted red.
+`--dive-progress-fill` can replace the full fill with a custom color or gradient.
 
 Adapters receive the active keyframe state on mounting, including direct entry
 or seeking into a scene. Tool-owned deterministic interpolation/animations still
