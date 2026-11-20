@@ -42,77 +42,110 @@
       "id": "tool1-origins",
       "startTime": 0,
       "endTime": 10000,
-      "label": "Origins",
+      "label": {
+        "en": "Origins",
+        "cy": "Gwreiddiau"
+      },
       "description": "Tool 1: 1800 to 1900 context"
     },
     {
       "id": "tool1-shock",
       "startTime": 10000,
       "endTime": 20000,
-      "label": "Shock Era",
+      "label": {
+        "en": "Shock Era",
+        "cy": "Cyfnod Sioc"
+      },
       "description": "Tool 1: 1900 to 1950 with 1918 annotation"
     },
     {
       "id": "tool1-completion",
       "startTime": 20000,
       "endTime": 25000,
-      "label": "Modern Rise",
+      "label": {
+        "en": "Modern Rise",
+        "cy": "Cynnydd Modern"
+      },
       "description": "Tool 1: 1950 to 2020 completion"
     },
     {
       "id": "tool1-hold",
       "startTime": 25000,
       "endTime": 30000,
-      "label": "Explore Hold",
+      "label": {
+        "en": "Explore Hold",
+        "cy": "Saib Archwilio"
+      },
       "description": "Tool 1: final interaction window"
     },
     {
       "id": "tool2-baseline",
       "startTime": 30000,
       "endTime": 45000,
-      "label": "1950 Baseline",
+      "label": {
+        "en": "1950 Baseline",
+        "cy": "Gwaelodlin 1950"
+      },
       "description": "Tool 2 phase 1: inspect the starting cluster"
     },
     {
       "id": "tool2-catchup",
       "startTime": 45000,
       "endTime": 60000,
-      "label": "Catch-up Run",
+      "label": {
+        "en": "Catch-up Run",
+        "cy": "Rhediad Dal i Fyny"
+      },
       "description": "Tool 2 phase 2: 1950 to 2020 motion"
     },
     {
       "id": "tool2-freeze",
       "startTime": 60000,
       "endTime": 75000,
-      "label": "2020 Freeze",
+      "label": {
+        "en": "2020 Freeze",
+        "cy": "Rhewiad 2020"
+      },
       "description": "Tool 2 phase 3: pause and inspect at 2020"
     },
     {
       "id": "tool3-world",
       "startTime": 75000,
       "endTime": 87000,
-      "label": "World View",
+      "label": {
+        "en": "World View",
+        "cy": "Golwg Byd"
+      },
       "description": "Tool 3: global population blocks"
     },
     {
       "id": "tool3-asia-zoom",
       "startTime": 87000,
       "endTime": 98000,
-      "label": "Asia Zoom",
+      "label": {
+        "en": "Asia Zoom",
+        "cy": "Chwyddo Asia"
+      },
       "description": "Tool 3: zoom into Asia"
     },
     {
       "id": "tool3-return",
       "startTime": 98000,
       "endTime": 105000,
-      "label": "World Return",
+      "label": {
+        "en": "World Return",
+        "cy": "Dychwelyd i’r Byd"
+      },
       "description": "Tool 3: zoom back to world"
     },
     {
       "id": "tool3-hold",
       "startTime": 105000,
       "endTime": 110000,
-      "label": "Explore Hold",
+      "label": {
+        "en": "Explore Hold",
+        "cy": "Saib Archwilio"
+      },
       "description": "Tool 3: final interaction window"
     }
   ],
