@@ -39,10 +39,10 @@
       a { color: var(--accent); }
       main { padding: 10px 20px 20px; }
       dive-video {
-        display: block;
+        /* Width is the only input: the element derives its own height from the
+           story aspect ratio plus any inset chrome it needs. Do not set display
+           or height here, the element owns both. */
         width: min(1200px, 100%);
-        height: min(74vh, 760px);
-        min-height: 420px;
         margin: 0 auto;
         border-radius: 14px;
         overflow: hidden;
@@ -59,8 +59,7 @@
       @media (max-width: 900px) {
         main { padding: 10px 10px 16px; }
         dive-video {
-          height: min(72vh, 600px);
-          min-height: 380px;
+          width: 100%;
           border-radius: 10px;
         }
       }
