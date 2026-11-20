@@ -206,7 +206,9 @@ configure({
 These variables also work in page CSS, which wins over configured defaults.
 The generic timeline defaults to neutral grey section bands and a solid muted red
 played strip. Authored section colors remain in effect unless the host sets
-`--dive-section-bg` to use one background color throughout.
+`--dive-section-bg` to use one background color throughout. The volume slider in
+the control bar reuses both tones: its fill follows the played strip colour and its
+track follows `--dive-scrubber-bg`.
 `--dive-play-button-order` and `--dive-time-display-order` optionally change visual
 ordering (both default to `0`). The `play-button` and `time-display` CSS parts remain
 available. `--dive-progress-color` overrides the timeline played-strip colour,

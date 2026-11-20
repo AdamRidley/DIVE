@@ -743,11 +743,55 @@ export class DiveVideo extends LitElement {
     .volume-slider {
       writing-mode: vertical-lr;
       direction: rtl;
-      appearance: auto;
+      appearance: none;
+      -webkit-appearance: none;
       width: 24px;
       height: 110px;
       margin: 0;
-      accent-color: var(--dive-accent, #aaa);
+      background: transparent;
+      /* Same two tones as the timeline: progress fill and track background. */
+      --volume-fill: var(--dive-progress-color, var(--dive-progress, var(--dive-accent, #f05f5f)));
+      --volume-track: var(--dive-scrubber-bg, #3f3f3f);
+    }
+    .volume-slider::-webkit-slider-runnable-track {
+      width: 6px;
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(to top,
+        var(--volume-fill) 0 var(--volume-percent, 100%),
+        var(--volume-track) var(--volume-percent, 100%) 100%);
+    }
+    .volume-slider::-moz-range-track {
+      width: 6px;
+      border-radius: 999px;
+      background: var(--volume-track);
+    }
+    .volume-slider::-moz-range-progress {
+      border-radius: 999px;
+      background: var(--volume-fill);
+    }
+    .volume-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      box-sizing: border-box;
+      width: 14px;
+      height: 14px;
+      margin-left: -4px;
+      border: 2px solid var(--dive-drawer-bg, #111214);
+      border-radius: 50%;
+      background: var(--volume-fill);
+    }
+    .volume-slider::-moz-range-thumb {
+      box-sizing: border-box;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--dive-drawer-bg, #111214);
+      border-radius: 50%;
+      background: var(--volume-fill);
+    }
+    .volume-slider:focus-visible {
+      outline: 2px solid currentColor;
+      outline-offset: 2px;
     }
     button.icon-btn.corner-btn {
       position: absolute;
@@ -2288,6 +2332,7 @@ export class DiveVideo extends LitElement {
         <div class="volume-popup">
           <input class="volume-slider" type="range" min="0" max="1" step="0.01"
             .value=${String(level)} aria-label=${ui.volume} aria-orientation="vertical"
+            style="--volume-percent: ${Math.round(level * 100)}%"
             aria-valuetext="${Math.round(level * 100)}%" @input=${this.handleVolumeInput}/>
         </div>
       </div>

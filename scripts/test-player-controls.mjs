@@ -416,6 +416,34 @@ try {
   }
   await setVolume(0.4);
   assert.equal(await player.evaluate(element => element.audioEngine.clips[0].element.volume), 0.4);
+  // The volume slider shares the timeline's two tones: progress fill and track background.
+  const volumeTones = await player.evaluate(element => {
+    const root = element.shadowRoot;
+    const slider = root.querySelector('.volume-slider');
+    const style = getComputedStyle(slider);
+    // Normalise any authored colour to the rgb() form the computed styles report.
+    const probe = document.createElement('span');
+    document.body.appendChild(probe);
+    const asRgb = (value) => {
+      probe.style.color = value.trim();
+      const resolved = getComputedStyle(probe).color;
+      return resolved;
+    };
+    const tones = {
+      fill: asRgb(style.getPropertyValue('--volume-fill')),
+      track: asRgb(style.getPropertyValue('--volume-track')),
+      percent: style.getPropertyValue('--volume-percent').trim(),
+      progress: getComputedStyle(root.querySelector('.progress')).backgroundColor,
+      scrubber: getComputedStyle(root.querySelector('.scrubber')).backgroundColor,
+    };
+    probe.remove();
+    return tones;
+  });
+  assert.equal(volumeTones.fill, volumeTones.progress,
+    'The volume fill must use the same colour as the timeline progress');
+  assert.equal(volumeTones.track, volumeTones.scrubber,
+    'The volume track must use the same colour as the timeline background');
+  assert.equal(volumeTones.percent, '40%', 'The fill must follow the volume level');
   await volumeButton.click();
   assert.equal(await volumeButton.getAttribute('aria-pressed'), 'true');
   assert.equal(await volumeButton.locator('.volume-muted').count(), 1, 'Muting a non-zero volume must show the muted icon');
