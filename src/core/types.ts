@@ -7,6 +7,8 @@ export interface Story {
   aspectRatio?: string;
   audio?: StoryAudio;
   captions?: StoryCaptions;
+  /** Default caption placement; element property/attribute and viewer selection override it. */
+  captionsBelow?: boolean;
   languages?: LanguageOption[];
   poster?: string;
   /**

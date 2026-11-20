@@ -66,7 +66,8 @@ and continues to offer Retry for scene failures.
 
 Story JSON can include `aspectRatio` (default `9:16`), `audio` (URL or clip objects), and `captions` (WebVTT URL or `{ startTime, endTime, text }` cues). The default height follows available width and the story aspect ratio, adding inset controls and below-video captions, capped at `100dvh`. The picture is contained without cropping at that cap. Explicit CSS `height` overrides automatic sizing and its viewport cap; `width`, `min-height` and `max-height` also remain available. Forced boxes and fullscreen may letterbox.
 
-Add `captions-below` to place captions in a separate band beneath the picture.
+Set story `"captionsBelow": true`, or add the element's `captions-below` attribute,
+to place captions in a fixed-height single-line band beneath the picture.
 When caption tracks are available, captions start enabled, preserving the existing
 default; the CC button toggles them. Sound remains enabled by default unless the
 host sets `muted`.
@@ -86,6 +87,13 @@ with a playhead. Scrubbing and keyboard seeking do not select control text.
 Controls remain visible while keyboard-focused, and drawers support keyboard
 focus entry and restoration. Relative story URLs respect the page's
 `<base>` element.
+
+Caption placement resolves viewer choice > element `captionsBelow` property >
+story `captionsBelow` > overlaid. The element property is `undefined` when no
+override is supplied; set it to `false` to override a story's below placement or
+`undefined` to follow the story again. Removing a previously set boolean attribute
+sets the property to `false`. Story `"languageToggle": "menu"` likewise removes
+the need for a host `language-toggle="menu"` attribute.
 
 Use `<dive-video src="./story.json" muted></dive-video>` to start with sound off; the speaker control enables it on demand. The `isMuted` property also supports programmatic changes without reflecting runtime mute state into the host attribute. Player controls have built-in English and Welsh text; other languages (or rewording) come from `playerText` (see below). `dive-language-change` emits `{ lang }` in its event detail when the active language changes.
 

@@ -55,7 +55,7 @@ export class DiveVideo extends LitElement {
   @property({ type: String }) src = ''; // URL to the story JSON
   @property({ type: String, attribute: 'ui-mode' }) uiMode = '';
   @property({ type: String, attribute: 'language-toggle' }) languageToggle = '';
-  @property({ type: Boolean, attribute: 'captions-below' }) captionsBelow = false;
+  @property({ type: Boolean, attribute: 'captions-below' }) captionsBelow: boolean | undefined = undefined;
 
   @state() private story: Story | null = null;
   @state() private isPlaying = false;
@@ -1060,7 +1060,7 @@ export class DiveVideo extends LitElement {
   }
 
   private activeCaptionsBelow() {
-    return this.viewerCaptionsBelow ?? this.captionsBelow;
+    return this.viewerCaptionsBelow ?? this.captionsBelow ?? this.story?.captionsBelow ?? false;
   }
 
   private pauseOnInteractActive() {

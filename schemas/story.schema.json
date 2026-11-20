@@ -50,6 +50,10 @@
         { "$ref": "#/$defs/captionTrack" }
       ]
     },
+    "captionsBelow": {
+      "type": "boolean",
+      "description": "Place captions below the picture by default; element property/attribute and viewer selection override it"
+    },
     "showUiModeSetting": {
       "type": "boolean",
       "description": "Show the viewer layout selector in Settings; defaults to true"

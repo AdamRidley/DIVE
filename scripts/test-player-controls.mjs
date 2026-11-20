@@ -239,6 +239,33 @@ try {
     rule.style.removeProperty('height');
   });
   const player = page.locator('dive-video');
+  await player.evaluate(element => {
+    element.story = { ...element.story, captionsBelow: true, languageToggle: 'menu' };
+    element.captionsBelow = undefined;
+    element.captionsEnabled = true;
+  });
+  await page.waitForFunction(() => document.querySelector('dive-video').matches(':state(captions-below)'));
+  assert.equal(await player.getAttribute('captions-below'), null);
+  assert.equal(await player.locator('.captions.below').count(), 1, 'Story must place captions below without host attributes');
+  await player.evaluate(element => { element.captionsBelow = false; });
+  await page.waitForFunction(() => !document.querySelector('dive-video').matches(':state(captions-below)'));
+  await player.evaluate(element => {
+    element.story = { ...element.story, captionsBelow: false };
+    element.setAttribute('captions-below', '');
+  });
+  await page.waitForFunction(() => document.querySelector('dive-video').matches(':state(captions-below)'));
+  await player.evaluate(element => {
+    element.removeAttribute('captions-below');
+    element.captionsBelow = undefined;
+    element.story = { ...element.story, captionsBelow: true };
+    element.viewerCaptionsBelow = false;
+  });
+  await page.waitForFunction(() => !document.querySelector('dive-video').matches(':state(captions-below)'));
+  await player.evaluate(element => {
+    element.story = { ...element.story, captionsBelow: undefined, languageToggle: undefined };
+    element.viewerCaptionsBelow = null;
+    element.captionsEnabled = false;
+  });
   await player.evaluate(element => element.setAttribute('ui-mode', 'inset'));
   const chapterTrigger = player.locator('[aria-controls="chapters-drawer"]');
   const languageTrigger = player.locator('[aria-controls="languages-drawer"]');
