@@ -85,6 +85,7 @@ export class DiveVideo extends LitElement {
   private storyReadyEmitted = false;
   private warnedSettingsLinks = new Set<string>();
   @state() private toolFading = false;
+  @state() private compactControls = false;
   @state() private viewerUiMode: ReturnType<typeof parseUiMode> = null;
   @state() private viewerCaptionsBelow: boolean | null = null;
   @state() private timelineHover: { time: number; x: number } | null = null;
@@ -508,7 +509,14 @@ export class DiveVideo extends LitElement {
       transform: translateY(40%);
     }
     .chrome-top {
-      display: contents;
+      position: absolute;
+      inset: 0 0 auto;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      z-index: 11;
     }
     .top-scrim {
       position: absolute;
@@ -521,30 +529,28 @@ export class DiveVideo extends LitElement {
     }
     .top-scrim.hidden { opacity: 0; }
     :host(:state(inset)) .chrome-top {
+      position: relative;
+      inset: auto;
       grid-row: 1;
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
       background: var(--dive-chrome-bg, #111214);
       border-bottom: var(--dive-chrome-divider, 1px solid rgba(255, 255, 255, 0.14));
       z-index: 11;
     }
-    :host(:state(inset)) .dropdown-anchor { position: relative; inset: auto; }
-    :host(:state(inset)) .chapter-menu-anchor { justify-self: start; }
+    .chrome-top .dropdown-anchor { position: relative; inset: auto; }
+    .chapter-menu-anchor { justify-self: start; }
     .chrome-help {
+      position: relative;
+      z-index: 11;
       min-width: 0;
       text-align: center;
       overflow-wrap: anywhere;
       color: var(--dive-chrome-fg, #fff);
       font-size: 13px;
       line-height: 1.4;
+      transition: opacity 0.25s ease;
     }
+    .chrome-help.hidden { opacity: 0; pointer-events: none; }
     .chrome-top-right {
-      display: contents;
-    }
-    :host(:state(inset)) .chrome-top-right {
       display: flex;
       align-items: center;
       justify-content: flex-end;
@@ -584,7 +590,7 @@ export class DiveVideo extends LitElement {
       opacity: 0;
       pointer-events: none;
     }
-    :host(:state(inset)) .lang-toggle {
+    .chrome-top .lang-toggle {
       position: relative;
       top: auto;
       right: auto;
@@ -968,18 +974,18 @@ export class DiveVideo extends LitElement {
       :host(:state(inset)) .chrome-top { padding-inline: 8px; }
       .captions.clear-controls { bottom: max(var(--dive-caption-bottom, 2%), 120px); }
     }
-    @container dive-player (max-width: 600px) {
-      .controls {
-        flex-wrap: wrap;
-      }
-      .scrubber {
-        flex-basis: 100%;
-        order: -1;
-        margin: 0 0 8px;
-      }
-      .time-display {
-        margin-right: auto;
-      }
+    .controls.compact {
+      flex-wrap: wrap;
+    }
+    .controls.compact .scrubber {
+      flex-basis: 100%;
+      order: -1;
+      margin: 0 0 8px;
+    }
+    .controls.compact .play-btn { order: 0; }
+    .controls.compact .time-display {
+      order: 2;
+      margin-right: auto;
     }
   `;
 
@@ -997,6 +1003,7 @@ export class DiveVideo extends LitElement {
     this.addEventListener('keydown', this.handleKeyboardNavigation, true);
     this.addEventListener('focusin', this.resetUIHideTimer);
     this.addEventListener('focusout', this.handleFocusOut);
+    this.handleControlLayoutChange();
     if (!this.hasAttribute('tabindex')) {
       this.tabIndex = 0;
     }
@@ -1008,6 +1015,7 @@ export class DiveVideo extends LitElement {
       if (this.autoHeightFrame) return;
       this.autoHeightFrame = requestAnimationFrame(() => {
         this.autoHeightFrame = 0;
+        this.handleControlLayoutChange();
         this.fitBelowCaption();
         this.applyAutoHeight();
       });
@@ -1032,6 +1040,7 @@ export class DiveVideo extends LitElement {
     this.observeStage();
     this.fitBelowCaption();
     this.observeSize();
+    this.handleControlLayoutChange();
     if (changedProperties.has('playerLang')) this.updateFrameTitles();
   }
 
@@ -1181,6 +1190,33 @@ export class DiveVideo extends LitElement {
     queueMicrotask(() => this.resetUIHideTimer());
   };
 
+  private handleControlLayoutChange = () => {
+    const controls = this.renderRoot.querySelector<HTMLElement>('.controls');
+    let requiredWidth = 0;
+    if (controls) {
+      const style = getComputedStyle(controls);
+      // The single-row timeline needs its 60px minimum track and two 12px margins.
+      requiredWidth = 84 + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+      for (const element of controls.querySelectorAll<HTMLElement>(':scope > button, :scope > .volume-control, :scope > .time-display')) {
+        const itemStyle = getComputedStyle(element);
+        const width = element.classList.contains('time-display')
+          ? Math.max(element.getBoundingClientRect().width, element.scrollWidth)
+          : element.getBoundingClientRect().width;
+        requiredWidth += width
+          + parseFloat(itemStyle.marginLeft) + (element.classList.contains('time-display') ? 0 : parseFloat(itemStyle.marginRight));
+      }
+    }
+    const compact = this.clientWidth <= 600 || requiredWidth > (controls?.clientWidth ?? this.clientWidth);
+    if (compact === this.compactControls) return;
+    const focused = this.shadowRoot?.activeElement;
+    const restoreFocus = ['.play-btn', '.volume-control button', '.volume-slider']
+      .find(selector => focused?.matches(selector));
+    this.compactControls = compact;
+    if (restoreFocus) {
+      void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLElement>(restoreFocus)?.focus());
+    }
+  };
+
   private handlePlayCatcher = (event: Event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1217,7 +1253,7 @@ export class DiveVideo extends LitElement {
     if (!this.sizeObserver) return;
     const targets = new Set<Element>([
       this,
-      ...this.renderRoot.querySelectorAll('.chrome-top, .controls, .captions.below'),
+      ...this.renderRoot.querySelectorAll('.chrome-top, .controls, .controls > button, .volume-control, .time-display, .captions.below'),
     ]);
     for (const target of this.sizeTargets) {
       if (!targets.has(target)) this.sizeObserver.unobserve(target);
@@ -2498,9 +2534,7 @@ export class DiveVideo extends LitElement {
         </div>
       ` : ''}
       </div>
-      ${chromeMode === 'inset' ? html`
-        <div class="chrome-help" part="player-help"><slot name="player-help">${ui.playerHelp}</slot></div>
-      ` : ''}
+        <div class="chrome-help ${chromeHidden ? 'hidden' : ''}" part="player-help" aria-hidden=${chromeHidden ? 'true' : 'false'}><slot name="player-help">${ui.playerHelp}</slot></div>
       <div class="chrome-top-right">
         ${showLangMenu ? html`
           <div class="dropdown-anchor language-menu-anchor" part="lang-toggle">
@@ -2546,10 +2580,10 @@ export class DiveVideo extends LitElement {
 
       ${videoSection}
 
-      <div class="controls ${chromeHidden ? 'hidden' : ''}" part="controls">
-        ${playButton}
-        ${this.renderVolumeControl(hasAudio, ui)}
-        ${html`<div class="time-display" part="time-display">
+      <div class="controls ${this.compactControls ? 'compact' : ''} ${chromeHidden ? 'hidden' : ''}" part="controls">
+        ${this.compactControls ? '' : playButton}
+        ${this.compactControls ? '' : this.renderVolumeControl(hasAudio, ui)}
+        ${this.compactControls ? '' : html`<div class="time-display" part="time-display">
           <span>${this.formatTime(this.currentTime)} / ${this.formatTime(duration)}</span>
         </div>`}
         <div class="scrubber" part="scrubber" role="slider" tabindex="0"
@@ -2601,6 +2635,12 @@ export class DiveVideo extends LitElement {
             </div>
           ` : ''}
         </div>
+
+        ${this.compactControls ? playButton : ''}
+        ${this.compactControls ? this.renderVolumeControl(hasAudio, ui) : ''}
+        ${this.compactControls ? html`<div class="time-display" part="time-display">
+          <span>${this.formatTime(this.currentTime)} / ${this.formatTime(duration)}</span>
+        </div>` : ''}
 
         ${hasCaptions ? html`
           <button
