@@ -140,6 +140,18 @@ Automatic height lives in the shadow stylesheet rather than generated host style
 
 ### Interaction, languages, and theming
 
+Both layouts have Chapters, localized help ("Pause the video to explore." by
+default), and Language. Use `playerText.playerHelp` per locale or a
+`slot="player-help"` element for custom help. In autohide mode, help appears and
+hides with the controls. Header labels and chevrons are hidden
+by default; enable with `--dive-header-label-display: inline` and
+`--dive-header-chevron-display: inline`. Labels remain hidden below 600px player
+width. Menus focus/scroll to the current option, dismiss outside, and return focus
+on Escape. Settings lives in the bottom controls, not in the header.
+Control wrapping follows the player's available width, not the viewport. At narrow
+widths, or whenever a single row cannot fit, the timeline occupies a full-width
+top row with Play, volume, time and the other controls together below it.
+
 - `pauseOnInteract` (boolean) can be set on the story, a scene, or a keyframe `state`. The most specific value wins. When true, tapping a playing tool pauses it (autohide's first tap still just reveals the chrome) and so does an iframe `DIVE_INTERACT`. Interaction never resumes playback.
 - `languageToggle` on the story (or the `language-toggle` attribute) places the language picker: `menu` (settings cog, default), `inline` (EN/CY pill in the chrome), `auto` (inline for exactly two languages, menu otherwise), or `none`.
 - The inline picker is a joined pill with a sliding accent-coloured underline.

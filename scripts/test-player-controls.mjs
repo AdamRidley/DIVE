@@ -174,6 +174,8 @@ try {
   assert.equal(await pill.locator('.language-code').first().isVisible(), false);
   await page.locator('dive-video').evaluate(player => player.removeAttribute('language-toggle'));
   for (const [locale, text] of [['en', { play: 'Play', pause: 'Pause' }], ['cy', { play: 'Chwarae', pause: 'Oedi' }]]) {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.waitForFunction(() => !document.querySelector('dive-video').compactControls);
     await page.evaluate(locale => document.querySelector('dive-video').setLanguage(locale), locale);
     await page.evaluate(theme => window.configureControls({ theme }), theme);
     await page.mouse.move(0, 0);
@@ -197,6 +199,10 @@ try {
       await page.locator('dive-video').evaluate((player, mode) => player.setAttribute('ui-mode', mode), mode);
       for (const width of [1280, 390]) {
         await page.setViewportSize({ width, height: 900 });
+        await page.waitForFunction(() => {
+          const player = document.querySelector('dive-video');
+          return player.compactControls === (player.clientWidth <= 600);
+        });
         const bounds = await slider.boundingBox();
         assert.ok(bounds && bounds.width > 0, 'Timeline must remain visible on narrow screens');
         const y = bounds.y + bounds.height / 2;
@@ -206,7 +212,7 @@ try {
         await page.mouse.move(bounds.x + bounds.width * 0.75, y, { steps: 15 });
         await page.mouse.up();
         const current = Number(await slider.getAttribute('aria-valuenow'));
-        assert.ok(Math.abs(current - 45) <= 1, `${locale} ${mode} ${width}px: dragging must seek to 75%`);
+        assert.ok(Math.abs(current - 45) <= 1, `${locale} ${mode} ${width}px: dragging must seek to 75% (got ${current}s)`);
         assert.equal(await page.evaluate(() => getSelection().toString()), '', 'Scrubbing must not select chapter text');
         assert.ok(await slider.evaluate(element => element.getRootNode().activeElement === element),
           'Pointer seeking must focus the slider for subsequent keyboard seeking');
@@ -265,6 +271,79 @@ try {
     rule.style.removeProperty('height');
   });
   const player = page.locator('dive-video');
+  await page.evaluate(() => {
+    window.configureControls({ theme: {
+      '--dive-play-button-order': '-2',
+      '--dive-time-display-order': '2',
+    } });
+  });
+  for (const locale of ['en', 'cy']) {
+    await player.evaluate((element, locale) => element.setLanguage(locale), locale);
+    for (const mode of ['inset', 'autohide']) {
+      await player.evaluate((element, mode) => element.setAttribute('ui-mode', mode), mode);
+      assert.equal((await player.locator('.chrome-help').textContent()).trim(),
+        locale === 'cy' ? 'Oedwch y fideo i archwilio.' : 'Pause the video to explore.',
+        `${locale} ${mode}: localized help must be present in both modes`);
+      for (const width of [320, 390, 480, 540, 599, 600, 601, 640, 720, 1280]) {
+        await player.evaluate((element, width) => { element.style.width = `${width}px`; }, width);
+        await page.waitForTimeout(80);
+        const layout = await player.evaluate(element => {
+          const root = element.shadowRoot;
+          const controls = root.querySelector('.controls');
+          const track = root.querySelector('.scrubber').getBoundingClientRect();
+          const buttons = [...controls.children].filter(node => node.matches('button, .volume-control, .time-display'));
+          return {
+            track: { top: track.top, bottom: track.bottom, width: track.width },
+            items: buttons.map(node => {
+              const rect = node.getBoundingClientRect();
+              return { top: rect.top, bottom: rect.bottom, centre: rect.top + rect.height / 2 };
+            }),
+            available: controls.clientWidth - 20,
+            overflow: controls.scrollWidth > controls.clientWidth,
+          };
+        });
+        const context = `${locale} ${mode} ${width}px player in a 1280px viewport`;
+        assert.equal(layout.overflow, false, `${context}: controls must not overflow`);
+        const centres = layout.items.map(item => item.centre);
+        assert.ok(Math.max(...centres) - Math.min(...centres) < 1,
+          `${context}: Play, volume, time and other controls must stay together`);
+        if (width <= 600) {
+          assert.ok(layout.track.bottom <= Math.min(...layout.items.map(item => item.top)),
+            `${context}: timeline must be above every control, including Play`);
+          assert.ok(Math.abs(layout.track.width - layout.available) < 1,
+            `${context}: wrapped timeline must occupy the full row`);
+        } else if (width === 1280) {
+          assert.ok(layout.track.top < layout.items[0].bottom && layout.track.bottom > layout.items[0].top,
+            `${context}: wide controls must retain the single-row layout`);
+        }
+      }
+    }
+  }
+  await player.evaluate(element => {
+    element.style.width = '720px';
+    element.style.setProperty('--dive-play-button-min-width', '480px');
+  });
+  await page.waitForFunction(() => {
+    const root = document.querySelector('dive-video').shadowRoot;
+    return root.querySelector('.scrubber').getBoundingClientRect().bottom
+      <= root.querySelector('.play-btn').getBoundingClientRect().top;
+  });
+  assert.ok(await player.locator('.controls').evaluate(node => node.scrollWidth <= node.clientWidth),
+    'Controls must stack based on their actual required space, even above 600px');
+  await slider.press('Home');
+  await slider.press('ArrowRight');
+  assert.equal(await slider.getAttribute('aria-valuenow'), '5', 'Wrapped timeline remains keyboard accessible');
+  await player.locator('.volume-button').focus();
+  await player.evaluate(element => element.style.removeProperty('--dive-play-button-min-width'));
+  await page.waitForFunction(() => !document.querySelector('dive-video').compactControls);
+  assert.ok(await player.locator('.volume-button').evaluate(node => node === node.getRootNode().activeElement),
+    'Returning to a single row after a control resizes must preserve volume-button focus');
+  await player.evaluate(element => {
+    element.style.removeProperty('width');
+    element.style.removeProperty('--dive-play-button-min-width');
+    element.setAttribute('ui-mode', 'inset');
+  });
+  await page.evaluate(() => window.configureControls({ theme: {}, language: 'en', languageToggle: 'menu' }));
   const playLabel = player.locator('.play-label');
   assert.equal(await playLabel.isVisible(), false, 'Shared player remains icon-only by default');
   await player.evaluate(element => { element.story = { ...element.story, showPlayLabel: true }; });
@@ -347,16 +426,33 @@ try {
   assert.equal(await player.locator('slot[name="player-help"]').evaluate(slot => slot.assignedElements()[0].textContent), 'Custom author help');
   await player.locator('[slot="player-help"]').evaluate(node => { node.textContent = 'Custom wrapping author help. '.repeat(16); });
   const fullscreen = player.locator('button[title="Toggle Fullscreen"]');
-  await fullscreen.click();
-  await page.waitForFunction(() => !!document.fullscreenElement);
-  assert.ok(await player.locator('.chrome-help').evaluate(node => {
-    const help = node.getBoundingClientRect();
-    const header = node.parentElement.getBoundingClientRect();
-    return help.top >= header.top && help.bottom <= header.bottom && header.height > 52;
-  }), 'Fullscreen header must grow to contain wrapped author help');
-  await fullscreen.click();
-  await page.waitForFunction(() => !document.fullscreenElement);
+  for (const mode of ['inset', 'autohide']) {
+    await player.evaluate((element, mode) => element.setAttribute('ui-mode', mode), mode);
+    await fullscreen.click();
+    await page.waitForFunction(() => !!document.fullscreenElement);
+    assert.ok(await player.locator('.chrome-help').evaluate(node => {
+      const help = node.getBoundingClientRect();
+      const header = node.parentElement.getBoundingClientRect();
+      return help.top >= header.top && help.bottom <= header.bottom && header.height > 52;
+    }), `${mode}: fullscreen header must grow to contain wrapped author help`);
+    await fullscreen.click();
+    await page.waitForFunction(() => !document.fullscreenElement);
+  }
   await player.locator('[slot="player-help"]').evaluate(node => node.remove());
+  await player.evaluate(element => element.setAttribute('ui-mode', 'autohide'));
+  const help = player.locator('.chrome-help');
+  assert.equal((await help.textContent()).trim(), 'Pause the video to explore.',
+    'Autohide must render the same localized help as inset');
+  assert.ok(await help.isVisible());
+  await player.evaluate(async element => {
+    element.isUIHidden = true;
+    await element.updateComplete;
+  });
+  assert.equal(await help.getAttribute('aria-hidden'), 'true', 'Hidden chrome must also hide help from assistive technology');
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('dive-video').shadowRoot.querySelector('.chrome-help')).opacity === '0');
+  await player.dispatchEvent('pointerenter', { pointerType: 'mouse' });
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('dive-video').shadowRoot.querySelector('.chrome-help')).opacity === '1');
+  await player.evaluate(element => element.setAttribute('ui-mode', 'inset'));
   for (const property of ['--dive-header-label-display', '--dive-header-chevron-display']) {
     await player.evaluate((element, property) => element.style.removeProperty(property), property);
   }
